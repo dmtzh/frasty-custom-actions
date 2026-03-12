@@ -24,28 +24,25 @@ class GetContentFromHtmlConfig:
 
     @staticmethod
     def from_dict(data: dict[str, Any]) -> Result['GetContentFromHtmlConfig', str]:
-        def validate_has_any_selector(css_selector, regex_selector) -> Result[None, str]:
-            has_any_selector = isinstance(css_selector, str) or isinstance(regex_selector, str)
+        def validate_has_any_selector() -> Result[None, str]:
+            has_any_selector = "css_selector" in data or "regex_selector" in data
             return Result.Ok(None) if has_any_selector else Result.Error("css_selector is missing")
-        def validate_css_selector(css_selector) -> Result[str | None, str]:
-            if not isinstance(css_selector, str):
+        def validate_css_selector() -> Result[str | None, str]:
+            if "css_selector" not in data:
                 return Result.Ok(None)
-            return parse_non_empty_str(css_selector, "css_selector")
-        def validate_regex_selector(regex_selector) -> Result[str | None, str]:
-            if not isinstance(regex_selector, str):
+            return parse_non_empty_str(data["css_selector"], "css_selector")
+        def validate_regex_selector() -> Result[str | None, str]:
+            if "regex_selector" not in data:
                 return Result.Ok(None)
-            return parse_non_empty_str(regex_selector, "regex_selector")
-        def validate_output_name(output_name) -> Result[str | None, str]:
-            if not isinstance(output_name, str):
+            return parse_non_empty_str(data["regex_selector"], "regex_selector")
+        def validate_output_name() -> Result[str | None, str]:
+            if "output_name" not in data:
                 return Result.Ok(None)
-            return parse_non_empty_str(output_name, "output_name")
-        opt_css_selector = data.get("css_selector")
-        opt_regex_selector = data.get("regex_selector")
-        has_any_selector_res = validate_has_any_selector(opt_css_selector, opt_regex_selector)
-        css_selector_res = validate_css_selector(opt_css_selector)
-        regex_selector_res = validate_regex_selector(opt_regex_selector)
-        opt_output_name = data.get("output_name")
-        output_name_res = validate_output_name(opt_output_name)
+            return parse_non_empty_str(data["output_name"], "output_name")
+        has_any_selector_res = validate_has_any_selector()
+        css_selector_res = validate_css_selector()
+        regex_selector_res = validate_regex_selector()
+        output_name_res = validate_output_name()
         errs = [err for err in [has_any_selector_res.swap().default_value(None), css_selector_res.swap().default_value(None), regex_selector_res.swap().default_value(None), output_name_res.swap().default_value(None)] if err is not None]
         match errs:
             case []:

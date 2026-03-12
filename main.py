@@ -5,6 +5,7 @@ if __name__ == "__main__":
     
     from actions.filtersuccessresponse import FilterSuccessResponseHandler
     from actions.filterhtmlresponse import FilterHtmlResponseHandler
+    from actions.filternewdata.handler import FilterNewDataHandler
     from actions.getcontentfromhtml import GetContentFromHtmlHandler
     from actions.getlinksfromhtml import GetLinksFromHtmlHandler
     from actions.requesturl import RequestUrlHandler
@@ -18,5 +19,6 @@ if __name__ == "__main__":
     register_custom_action(FilterHtmlResponseHandler())
     register_custom_action(GetContentFromHtmlHandler())
     register_custom_action(GetLinksFromHtmlHandler())
+    register_custom_action(FilterNewDataHandler())
 
     asyncio.run(app.run())

@@ -23,18 +23,16 @@ class GetLinksFromHtmlConfig:
 
     @staticmethod
     def from_dict(data: dict[str, Any]) -> Result['GetLinksFromHtmlConfig', str]:
-        def validate_text_name(text_name) -> Result[str | None, str]:
-            if not isinstance(text_name, str):
+        def validate_text_name() -> Result[str | None, str]:
+            if "text_name" not in data:
                 return Result.Ok(None)
-            return parse_non_empty_str(text_name, "text_name")
-        def validate_link_name(link_name) -> Result[str | None, str]:
-            if not isinstance(link_name, str):
+            return parse_non_empty_str(data["text_name"], "text_name")
+        def validate_link_name() -> Result[str | None, str]:
+            if "link_name" not in data:
                 return Result.Ok(None)
-            return parse_non_empty_str(link_name, "link_name")
-        opt_text_name = data.get("text_name")
-        opt_link_name = data.get("link_name")
-        text_name_res = validate_text_name(opt_text_name)
-        link_name_res = validate_link_name(opt_link_name)
+            return parse_non_empty_str(data["link_name"], "link_name")
+        text_name_res = validate_text_name()
+        link_name_res = validate_link_name()
         errs = [err for err in [text_name_res.swap().default_value(None), link_name_res.swap().default_value(None)] if err is not None]
         match errs:
             case []:
