@@ -1,7 +1,5 @@
 if __name__ == "__main__":
     import asyncio
-
-    from infrastructure.rabbitmq import config
     
     from actions.filtersuccessresponse import FilterSuccessResponseHandler
     from actions.filterhtmlresponse import FilterHtmlResponseHandler
@@ -10,10 +8,10 @@ if __name__ == "__main__":
     from actions.getlinksfromhtml import GetLinksFromHtmlHandler
     from actions.requesturl import RequestUrlHandler
 
+    from config import action_handler, app, run_action
     from customactionhandler import create_custom_action_registration_handler
 
-    app = config.create_faststream_app()
-    register_custom_action = create_custom_action_registration_handler(config.run_action, config.action_handler)
+    register_custom_action = create_custom_action_registration_handler(run_action, action_handler)
     register_custom_action(RequestUrlHandler())
     register_custom_action(FilterSuccessResponseHandler())
     register_custom_action(FilterHtmlResponseHandler())
