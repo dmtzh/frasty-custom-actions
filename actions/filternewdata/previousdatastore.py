@@ -9,17 +9,22 @@ from shared.pipeline.actionhandler import DataDto
 
 import config
 
+type ItemType = dict[str, list[DataDto]]
+type DtoItemType = dict[str, list[DataDto]]
+
+def _id[T](item: T) -> T: return item
+
 P = ParamSpec("P")
 R = TypeVar("R")
 
 class PreviousDataStore:
     def __init__(self):
         folder_path = os.path.join(config.STORAGE_ROOT_FOLDER, "FilterNewDataStorage")
-        file_repo_with_ver = FileWithVersionLimited[str, dict[str, list[DataDto]], dict[str, list[DataDto]]](
+        file_repo_with_ver = FileWithVersionLimited[str, ItemType, DtoItemType](
             "PreviousData",
-            lambda data: data,
-            lambda data: data,
-            JsonSerializer[dict[str, list[DataDto]]](),
+            _id,
+            _id,
+            JsonSerializer[DtoItemType](),
             "json",
             folder_path,
             5
@@ -27,7 +32,7 @@ class PreviousDataStore:
         self._file_repo_with_ver = file_repo_with_ver
         self._item_action = ItemActionInAsyncRepositoryWithVersion(file_repo_with_ver)
     
-    def with_storage(self, func: Callable[Concatenate[dict[str, list[DataDto]] | None, P], tuple[R, dict[str, list[DataDto]]]]):
+    def with_storage(self, func: Callable[Concatenate[ItemType | None, P], tuple[R, ItemType]]):
         def wrapper(set_name: str, *args: P.args, **kwargs: P.kwargs) -> Coroutine[Any, Any, R]:
             return self._item_action(func)(set_name, *args, **kwargs)
         return wrapper
