@@ -8,7 +8,7 @@ from expression import Result, effect
 from shared.customtypes import IdValue
 from shared.infrastructure.serialization.json import JsonSerializer
 from shared.infrastructure.storage.filewithversion import FileWithVersion
-from shared.utils.parse import parse_non_empty_str
+from shared.utils.parse import parse_from_dict, parse_non_empty_str
 
 import config
 
@@ -34,8 +34,8 @@ class ViberChannel:
     @effect.result["ViberChannel", str]()
     def from_dict(raw_data: dict[str, str]) -> Generator[Any, Any, "ViberChannel"]:
         dict_data = yield from Result.Ok(raw_data) if isinstance(raw_data, dict) else Result.Error(f"Invalid data type {type(raw_data)}")
-        auth_token = yield from parse_non_empty_str(dict_data.get("auth_token"), "auth_token")
-        from_ = yield from parse_non_empty_str(dict_data.get("from"), "from")
+        auth_token = yield from parse_from_dict(dict_data, "auth_token", parse_non_empty_str)
+        from_ = yield from parse_from_dict(dict_data, "from", parse_non_empty_str)
         return ViberChannel(auth_token, from_)
 
 class ViberChannelsStore:

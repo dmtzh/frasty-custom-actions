@@ -40,10 +40,7 @@ class FilterNewDataConfig:
     @staticmethod
     def from_dict(data: dict[str, Any]) -> Result['FilterNewDataConfig', str]:
         def validate_set_name() -> Result[str, str]:
-            if "set_name" in data:
-                return parse_non_empty_str(data["set_name"], "set_name")
-            else:
-                return Result.Error("'set_name' key is missing")
+            return parse_from_dict(data, "set_name", parse_non_empty_str)
         def validate_compare_to() -> Result[CompareTo, str]:
             if "compare_to" in data:
                 return parse_from_dict(data, "compare_to", CompareTo.parse)

@@ -28,10 +28,7 @@ class SendToViberChannelConfig:
         def validate_channel_id() -> Result[ViberChannelIdValue, str]:
             return parse_from_dict(data, "channel_id", ViberChannelIdValue.from_value_with_checksum)
         def validate_title() -> Result[str, str]:
-            if "title" in data:
-                return parse_non_empty_str(data["title"], "title")
-            else:
-                return Result.Error("'title' key is missing")
+            return parse_from_dict(data, "title", parse_non_empty_str)
         channel_id_res = validate_channel_id()
         title_res = validate_title()
         errs = [err for err in [channel_id_res.swap().default_value(None), title_res.swap().default_value(None)] if err is not None]

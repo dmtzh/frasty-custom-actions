@@ -31,15 +31,15 @@ class GetContentFromHtmlConfig:
         def validate_css_selector() -> Result[str | None, str]:
             if "css_selector" not in data:
                 return Result.Ok(None)
-            return parse_non_empty_str(data["css_selector"], "css_selector")
+            return parse_from_dict(data, "css_selector", parse_non_empty_str)
         def validate_regex_selector() -> Result[str | None, str]:
             if "regex_selector" not in data:
                 return Result.Ok(None)
-            return parse_non_empty_str(data["regex_selector"], "regex_selector")
+            return parse_from_dict(data, "regex_selector", parse_non_empty_str)
         def validate_output_name() -> Result[str | None, str]:
             if "output_name" not in data:
                 return Result.Ok(None)
-            return parse_non_empty_str(data["output_name"], "output_name")
+            return parse_from_dict(data, "output_name", parse_non_empty_str)
         def validate_return_empty_result() -> Result[bool, str]:
             if "return_empty_result" not in data:
                 return Result.Ok(False)

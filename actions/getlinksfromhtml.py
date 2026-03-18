@@ -27,11 +27,11 @@ class GetLinksFromHtmlConfig:
         def validate_text_name() -> Result[str | None, str]:
             if "text_name" not in data:
                 return Result.Ok(None)
-            return parse_non_empty_str(data["text_name"], "text_name")
+            return parse_from_dict(data, "text_name", parse_non_empty_str)
         def validate_link_name() -> Result[str | None, str]:
             if "link_name" not in data:
                 return Result.Ok(None)
-            return parse_non_empty_str(data["link_name"], "link_name")
+            return parse_from_dict(data, "link_name", parse_non_empty_str)
         def validate_return_empty_result() -> Result[bool, str]:
             if "return_empty_result" not in data:
                 return Result.Ok(False)
