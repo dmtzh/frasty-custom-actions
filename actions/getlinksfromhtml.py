@@ -61,11 +61,7 @@ class GetLinksFromHtmlHandler(CustomActionHandler[GetLinksFromHtmlConfig, GetLin
             content_res = parse_from_dict(data, "content", lambda content: content if isinstance(content, str) else None)
             return content_res.map(lambda _: data).default_value(None)
         data_list = [data for data in map(from_dict, dto_list) if data is not None]
-        match data_list:
-            case []:
-                return Result.Error("html data is missing")
-            case _:
-                return Result.Ok(data_list)
+        return Result.Ok(data_list)
     
     async def handle(self, config: GetLinksFromHtmlConfig, input: GetLinksFromHtmlInput) -> CompletedResult:
         def link_selector_to_dict(text_name: str, link_name: str, link: Selector):

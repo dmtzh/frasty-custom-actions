@@ -71,11 +71,7 @@ class GetContentFromHtmlHandler(CustomActionHandler[GetContentFromHtmlConfig, Ge
             content_res = parse_from_dict(data, "content", lambda content: content if isinstance(content, str) else None)
             return content_res.map(lambda _: data).default_value(None)
         data_list = [data for data in map(from_dict, dto_list) if data is not None]
-        match data_list:
-            case []:
-                return Result.Error("html data is missing")
-            case _:
-                return Result.Ok(data_list)
+        return Result.Ok(data_list)
     
     async def handle(self, config: GetContentFromHtmlConfig, input: GetContentFromHtmlInput) -> CompletedResult:
         def css_get_all(selector: Selector):

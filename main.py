@@ -4,6 +4,7 @@ from actions.filtersuccessresponse import FilterSuccessResponseHandler
 from actions.filterhtmlresponse import FilterHtmlResponseHandler
 from actions.filternewdata.handler import FilterNewDataHandler
 from actions.getcontentfromhtml import GetContentFromHtmlHandler
+from actions.getcontentfromjson import GetContentFromJsonHandler
 from actions.getlinksfromhtml import GetLinksFromHtmlHandler
 from actions.requesturl import RequestUrlHandler
 from actions.sendtoviberchannel.handler import SendToViberChannelHandler
@@ -19,5 +20,6 @@ register_custom_action(GetContentFromHtmlHandler())
 register_custom_action(GetLinksFromHtmlHandler())
 register_custom_action(FilterNewDataHandler())
 register_custom_action(SendToViberChannelHandler(viber_api_config))
+register_custom_action(GetContentFromJsonHandler())
 
 # asyncio.run(app.run())
