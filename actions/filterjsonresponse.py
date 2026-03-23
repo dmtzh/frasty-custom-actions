@@ -25,12 +25,12 @@ class FilterJsonResponseInput:
             case _:
                 return Result.Error(", ".join(errs))
 
-class FilterJsonResponseHandler(CustomActionHandlerWithoutConfig[FilterJsonResponseInput]):
+class FilterJsonResponseHandler(CustomActionHandlerWithoutConfig[list[FilterJsonResponseInput]]):
     @property
     def action_name(self) -> ActionName:
         return ActionName("filterjsonresponse")
     
-    def validate_input(self, dto_list: list[DataDto]) -> Result[FilterJsonResponseInput, Any]:
+    def validate_input(self, dto_list: list[DataDto]) -> Result[list[FilterJsonResponseInput], Any]:
         if not dto_list:
             return Result.Error("input data is missing")
         data_res_list = list(map(FilterJsonResponseInput.from_dict, dto_list))
@@ -40,12 +40,22 @@ class FilterJsonResponseHandler(CustomActionHandlerWithoutConfig[FilterJsonRespo
                 errs = to_error_list(*data_res_list)
                 return Result.Error(", ".join(errs))
             case _:
-                return Result.Ok(data_list[0])
+                return Result.Ok(data_list)
     
-    async def handle(self, input: FilterJsonResponseInput) -> CompletedResult:
-        match input.content_type:
-            case "application/json":
-                return CompletedWith.Data(data={"content": input.content})
+    async def handle(self, input_list: list[FilterJsonResponseInput]) -> CompletedResult:
+        def process_input(input: FilterJsonResponseInput) -> Result[dict[str, str], str]:
+            match input.content_type:
+                case "application/json":
+                    return Result.Ok({"content": input.content})
+                case _:
+                    err_msg = f"Expected json response but got {input.content_type}"
+                    return Result.Error(err_msg)
+        
+        results = [process_input(input) for input in input_list]
+        success_results = to_ok_list(*results)
+        match success_results:
+            case []:
+                err_msgs = to_error_list(*results)
+                return CompletedWith.Error(", ".join(err_msgs))
             case _:
-                err_msg = f"Expected json response but got {input.content_type}"
-                return CompletedWith.Error(err_msg)
+                return CompletedWith.Data(success_results)
