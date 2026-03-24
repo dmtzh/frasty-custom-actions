@@ -33,7 +33,7 @@ class FilterJsonResponseHandler(CustomActionHandlerWithoutConfig[list[FilterJson
     def validate_input(self, dto_list: list[DataDto]) -> Result[list[FilterJsonResponseInput], Any]:
         if not dto_list:
             return Result.Error("input data is missing")
-        data_res_list = list(map(FilterJsonResponseInput.from_dict, dto_list))
+        data_res_list = [FilterJsonResponseInput.from_dict(data) for data in dto_list]
         data_list = to_ok_list(*data_res_list)
         match data_list:
             case []:
