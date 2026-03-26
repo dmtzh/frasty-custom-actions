@@ -12,6 +12,7 @@ from shared.infrastructure.storage.repository import NotFoundError, StorageError
 from shared.pipeline.actionhandler import DataDto
 from shared.utils.asyncresult import async_ex_to_error_result, async_result, coroutine_result
 from shared.utils.parse import parse_from_dict, parse_non_empty_str
+from shared.utils.result import to_error_list
 
 from customactionhandler import CustomActionHandler
 
@@ -31,7 +32,7 @@ class SendToViberChannelConfig:
             return parse_from_dict(data, "title", parse_non_empty_str)
         channel_id_res = validate_channel_id()
         title_res = validate_title()
-        errs = [err for err in [channel_id_res.swap().default_value(None), title_res.swap().default_value(None)] if err is not None]
+        errs = to_error_list(channel_id_res, title_res)
         match errs:
             case []:
                 return Result.Ok(SendToViberChannelConfig(channel_id_res.ok, title_res.ok))
@@ -115,6 +116,8 @@ class SendToViberChannelHandler(CustomActionHandler[SendToViberChannelConfig, Se
         return SendToViberChannelConfig.from_dict(raw_config)
     
     def validate_input(self, dto_list: list[DataDto]) -> Result[SendToViberChannelInput, Any]:
+        if not dto_list:
+            return Result.Error("input data is missing")
         return Result.Ok(dto_list)
     
     async def handle(self, config: SendToViberChannelConfig, input: SendToViberChannelInput) -> CompletedResult:

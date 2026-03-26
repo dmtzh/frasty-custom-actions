@@ -13,6 +13,7 @@ from shared.customtypes import Error
 from shared.pipeline.actionhandler import DataDto
 from shared.utils.asyncresult import ex_to_error_result
 from shared.utils.parse import parse_bool_str, parse_from_dict, parse_non_empty_str
+from shared.utils.result import to_ok_list, to_error_list
 
 from customactionhandler import CustomActionHandler
 
@@ -49,7 +50,7 @@ class GetContentFromHtmlConfig:
         regex_selector_res = validate_regex_selector()
         output_name_res = validate_output_name()
         return_empty_result_res = validate_return_empty_result()
-        errs = [err for err in [has_any_selector_res.swap().default_value(None), css_selector_res.swap().default_value(None), regex_selector_res.swap().default_value(None), output_name_res.swap().default_value(None), return_empty_result_res.swap().default_value(None)] if err is not None]
+        errs = to_error_list(has_any_selector_res, css_selector_res, regex_selector_res, output_name_res, return_empty_result_res)
         match errs:
             case []:
                 return Result.Ok(GetContentFromHtmlConfig(css_selector_res.ok, regex_selector_res.ok, output_name_res.ok, return_empty_result_res.ok))
@@ -69,8 +70,8 @@ class GetContentFromHtmlHandler(CustomActionHandler[GetContentFromHtmlConfig, Ge
     def validate_input(self, dto_list: list[DataDto]) -> Result[GetContentFromHtmlInput, Any]:
         def from_dict(data: DataDto):
             content_res = parse_from_dict(data, "content", lambda content: content if isinstance(content, str) else None)
-            return content_res.map(lambda _: data).default_value(None)
-        data_list = [data for data in map(from_dict, dto_list) if data is not None]
+            return content_res.map(lambda _: data)
+        data_list = to_ok_list(*map(from_dict, dto_list))
         return Result.Ok(data_list)
     
     async def handle(self, config: GetContentFromHtmlConfig, input: GetContentFromHtmlInput) -> CompletedResult:

@@ -10,6 +10,7 @@ from shared.infrastructure.storage.repository import StorageError
 from shared.pipeline.actionhandler import DataDto
 from shared.utils.asyncresult import async_ex_to_error_result
 from shared.utils.parse import parse_from_dict, parse_non_empty_str
+from shared.utils.result import to_error_list
 from shared.utils.string import strip_and_lowercase
 
 from customactionhandler import CustomActionHandler
@@ -48,7 +49,7 @@ class FilterNewDataConfig:
                 return Result.Ok(CompareTo.ALL)
         set_name_res = validate_set_name()
         compare_to_res = validate_compare_to()
-        errs = [err for err in [set_name_res.swap().default_value(None), compare_to_res.swap().default_value(None)] if err is not None]
+        errs = to_error_list(set_name_res, compare_to_res)
         match errs:
             case []:
                 return Result.Ok(FilterNewDataConfig(set_name_res.ok, compare_to_res.ok))

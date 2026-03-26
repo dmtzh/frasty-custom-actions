@@ -13,6 +13,7 @@ from shared.customtypes import Error
 from shared.pipeline.actionhandler import DataDto
 from shared.utils.asyncresult import ex_to_error_result
 from shared.utils.parse import parse_bool_str, parse_from_dict, parse_non_empty_str
+from shared.utils.result import to_ok_list, to_error_list
 
 from customactionhandler import CustomActionHandler
 
@@ -39,7 +40,7 @@ class GetLinksFromHtmlConfig:
         text_name_res = validate_text_name()
         link_name_res = validate_link_name()
         return_empty_result_res = validate_return_empty_result()
-        errs = [err for err in [text_name_res.swap().default_value(None), link_name_res.swap().default_value(None), return_empty_result_res.swap().default_value(None)] if err is not None]
+        errs = to_error_list(text_name_res, link_name_res, return_empty_result_res)
         match errs:
             case []:
                 return Result.Ok(GetLinksFromHtmlConfig(text_name_res.ok, link_name_res.ok, return_empty_result_res.ok))
@@ -59,8 +60,8 @@ class GetLinksFromHtmlHandler(CustomActionHandler[GetLinksFromHtmlConfig, GetLin
     def validate_input(self, dto_list: list[DataDto]) -> Result[GetLinksFromHtmlInput, Any]:
         def from_dict(data: DataDto):
             content_res = parse_from_dict(data, "content", lambda content: content if isinstance(content, str) else None)
-            return content_res.map(lambda _: data).default_value(None)
-        data_list = [data for data in map(from_dict, dto_list) if data is not None]
+            return content_res.map(lambda _: data)
+        data_list = to_ok_list(*map(from_dict, dto_list))
         return Result.Ok(data_list)
     
     async def handle(self, config: GetLinksFromHtmlConfig, input: GetLinksFromHtmlInput) -> CompletedResult:
