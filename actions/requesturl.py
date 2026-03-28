@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Coroutine
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Optional
@@ -13,6 +14,7 @@ from shared.customtypes import Error
 from shared.pipeline.actionhandler import DataDto
 from shared.utils.asyncresult import async_ex_to_error_result
 from shared.utils.parse import parse_from_dict, parse_value
+from shared.utils.result import to_error_list, to_ok_list
 from shared.utils.string import strip_and_lowercase
 
 from customactionhandler import CustomActionHandlerWithoutConfig
@@ -120,46 +122,68 @@ class RequestUrlInput:
         url_res = parse_from_dict(data, "url", Url.parse)
         http_method_res = parse_from_dict(data, "http_method", HttpMethod.parse)
         headers_res = validate_headers()
-        errors = [err for err in [url_res.swap().default_value(None), http_method_res.swap().default_value(None), headers_res.swap().default_value(None)] if err is not None]
-        match errors:
+        errs = to_error_list(url_res, http_method_res, headers_res)
+        match errs:
             case []:
                 return Result.Ok(RequestUrlInput(url_res.ok, http_method_res.ok, headers_res.ok))
             case errs:
                 return Result.Error(", ".join(errs))
 
-class RequestUrlHandler(CustomActionHandlerWithoutConfig[RequestUrlInput]):
+class RequestUrlUnexpectedError(Error):
+    '''Unexpected error when request url'''
+
+class RequestUrlHandler(CustomActionHandlerWithoutConfig[list[RequestUrlInput]]):
     @property
     def action_name(self) -> ActionName:
         return ActionName("requesturl")
     
-    def validate_input(self, dto_list: list[DataDto]) -> Result[RequestUrlInput, Any]:
-        return RequestUrlInput.from_dict(dto_list[0])
+    def validate_input(self, dto_list: list[DataDto]) -> Result[list[RequestUrlInput], Any]:
+        if not dto_list:
+            return Result.Error("input data is missing")
+        data_res_list = [RequestUrlInput.from_dict(data) for data in dto_list]
+        data_list = to_ok_list(*data_res_list)
+        match data_list:
+            case []:
+                errs = to_error_list(*data_res_list)
+                return Result.Error(", ".join(errs))
+            case _:
+                return Result.Ok(data_list)
     
-    async def handle(self, input: RequestUrlInput) -> CompletedResult:
-        @async_ex_to_error_result(Error.from_exception)
-        async def request_data(input: RequestUrlInput) -> CompletedResult:
-            async with aiohttp.ClientSession() as session:
-                timeout_15_seconds = aiohttp.ClientTimeout(total=15)
-                try:
-                    async with session.request(method=input.http_method, url=input.url.value, headers=input.headers, timeout=timeout_15_seconds) as response:
-                        # bytes = await response.read()
-                        # json = await response.json()
-                        # content_stream = response.content
-                        content = await response.text()
-                        response_data_dict = {
-                            "status_code": response.status,
-                            "content_type": response.content_type,
-                            "content": content
-                        }
-                        response_data_dict = {
-                            "req. headers": dict(response.request_info.headers),
-                            "resp. headers": dict(response.headers)
-                        } | response_data_dict
-                        return CompletedWith.Data(response_data_dict)
-                except asyncio.TimeoutError:
-                    return CompletedWith.Error(f"Request timeout {timeout_15_seconds.total} seconds")
-                except aiohttp.client_exceptions.ClientConnectorError:
-                    return CompletedWith.Error(f"Cannot connect to {input.url} ({input.http_method})")
+    async def handle(self, input_list: list[RequestUrlInput]) -> CompletedResult:
+        @async_ex_to_error_result(RequestUrlUnexpectedError.from_exception)
+        async def request_data(session: aiohttp.ClientSession, timeout: aiohttp.ClientTimeout, input: RequestUrlInput) -> Result[dict[str, Any], RequestUrlUnexpectedError]:
+            try:
+                async with session.request(method=input.http_method, url=input.url.value, headers=input.headers, timeout=timeout) as response:
+                    # bytes = await response.read()
+                    # json = await response.json()
+                    # content_stream = response.content
+                    content = await response.text()
+                    response_data_dict = {
+                        "status_code": response.status,
+                        "content_type": response.content_type,
+                        "content": content
+                    }
+                    response_data_dict = {
+                        "req. headers": dict(response.request_info.headers),
+                        "resp. headers": dict(response.headers)
+                    } | response_data_dict
+                    return Result.Ok(response_data_dict)
+            except asyncio.TimeoutError:
+                return Result.Error(RequestUrlUnexpectedError(f"Request timeout {timeout.total} seconds"))
+            except aiohttp.client_exceptions.ClientConnectorError:
+                return Result.Error(RequestUrlUnexpectedError(f"Cannot connect to {input.url} ({input.http_method})"))
         
-        res = await request_data(input)
-        return res.default_with(lambda err: CompletedWith.Error(f"Request url unexpected error {err.message}"))
+        tasks: list[Coroutine[Any, Any, Result[dict[str, Any], RequestUrlUnexpectedError]]] = []
+        async with aiohttp.ClientSession() as session:
+            timeout_15_seconds = aiohttp.ClientTimeout(total=15)
+            for input in input_list:
+                task = request_data(session, timeout_15_seconds, input)
+                tasks.append(task)
+            results = await asyncio.gather(*tasks)
+            success_results = to_ok_list(*results)
+            match success_results:
+                case []:
+                    errs = map(str, to_error_list(*results))
+                    return CompletedWith.Error(", ".join(errs))
+                case _:
+                    return CompletedWith.Data(success_results)
