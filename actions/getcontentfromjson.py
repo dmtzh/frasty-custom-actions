@@ -65,10 +65,16 @@ class GetContentFromJsonHandler(CustomActionHandler[GetContentFromJsonConfig, Ge
         return Result.Ok(data_list)
     
     async def handle(self, config: GetContentFromJsonConfig, input: GetContentFromJsonInput) -> CompletedResult:
+        def match_value_to_json(match_value):
+            match match_value:
+                case str():
+                    return match_value
+                case _:
+                    return json.dumps(match_value)
         def query_get_all(dict_with_content: dict):
             content_obj = json.loads(dict_with_content["content"])
             jp_query = jp.parse(config.query)
-            matches = [json.dumps(match.value) for match in jp_query.find(content_obj)]
+            matches = [match_value_to_json(match.value) for match in jp_query.find(content_obj)]
             return matches
         @ex_to_error_result(Error.from_exception)
         def get_from_content(dict_with_content: dict):
