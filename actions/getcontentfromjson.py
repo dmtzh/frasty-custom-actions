@@ -7,6 +7,7 @@ from expression import Result
 from expression.collections.block import Block
 from expression.extra.result.traversable import traverse
 import jsonpath_ng as jp
+import jsonpath_ng.ext as jpx
 
 
 from shared.action import ActionName
@@ -73,7 +74,7 @@ class GetContentFromJsonHandler(CustomActionHandler[GetContentFromJsonConfig, Ge
                     return json.dumps(match_value)
         def query_get_all(dict_with_content: dict):
             content_obj = json.loads(dict_with_content["content"])
-            jp_query = jp.parse(config.query)
+            jp_query = jpx.parse(config.query)
             matches = [match_value_to_json(match.value) for match in jp_query.find(content_obj)]
             return matches
         @ex_to_error_result(Error.from_exception)
