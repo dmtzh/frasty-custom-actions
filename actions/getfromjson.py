@@ -19,6 +19,7 @@ from customactionhandler import CustomActionHandler
 class GetFromJsonConfigSelector:
     query: str
     output_name: str | None
+    default_value: Any | None
 
     @staticmethod
     def from_dict(data: dict) -> Result['GetFromJsonConfigSelector', str]:
@@ -30,10 +31,11 @@ class GetFromJsonConfigSelector:
             return parse_from_dict(data, "output_name", parse_non_empty_str)
         query_res = validate_query()
         output_name_res = validate_output_name()
+        default_value = data.get("default_value")
         errs = to_error_list(query_res, output_name_res)
         match errs:
             case []:
-                return Result.Ok(GetFromJsonConfigSelector(query_res.ok, output_name_res.ok))
+                return Result.Ok(GetFromJsonConfigSelector(query_res.ok, output_name_res.ok, default_value))
             case _:
                 return Result.Error(", ".join(errs))
 
@@ -95,9 +97,15 @@ class GetFromJsonHandler(CustomActionHandler[GetFromJsonConfig, GetFromJsonInput
         return Result.Ok(dto_list)
     
     async def handle(self, config: GetFromJsonConfig, input_list: GetFromJsonInput) -> CompletedResult:
+        def match_value_to_result(match_value, default_value):
+            match match_value:
+                case None if default_value is not None:
+                    return default_value
+                case _:
+                    return match_value
         def query_get_all(input, selector: GetFromJsonConfigSelector):
             jp_query = jpx.parse(selector.query)
-            matches = [match.value for match in jp_query.find(input)]
+            matches = [match_value_to_result(match.value, selector.default_value) for match in jp_query.find(input)]
             return matches
         def get_from_input(input, selector: GetFromJsonConfigSelector):
             matches = query_get_all(input, selector)
