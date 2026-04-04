@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import json
 from typing import Any
 
@@ -8,17 +9,45 @@ from shared.completedresult import CompletedResult, CompletedWith
 from shared.customtypes import Error
 from shared.pipeline.actionhandler import DataDto
 from shared.utils.asyncresult import ex_to_error_result
-from shared.utils.parse import parse_from_dict
+from shared.utils.parse import parse_bool_str, parse_from_dict
 from shared.utils.result import to_ok_list, to_error_list
 
-from customactionhandler import CustomActionHandlerWithoutConfig
+from customactionhandler import CustomActionHandler
+from .getfromjson import GetFromJsonConfig, GetFromJsonConfigSelector, GetFromJsonHandler
+
+@dataclass(frozen=True)
+class ContentToJsonConfig:
+    selectors: tuple[GetFromJsonConfigSelector, ...] | None
+    return_empty_result: bool
+
+    @staticmethod
+    def from_dict(data: dict[str, Any]) -> Result['ContentToJsonConfig', str]:
+        def validate_selectors() -> Result[tuple[GetFromJsonConfigSelector, ...] | None, str]:
+            if "selectors" not in data:
+                return Result.Ok(None)
+            return GetFromJsonConfig.from_dict(data).map(lambda config: config.selectors)
+        def validate_return_empty_result() -> Result[bool, str]:
+            if "return_empty_result" not in data:
+                return Result.Ok(False)
+            return parse_from_dict(data, "return_empty_result", parse_bool_str)
+        selectors_res = validate_selectors()
+        return_empty_result_res = validate_return_empty_result()
+        errs = to_error_list(selectors_res, return_empty_result_res)
+        match errs:
+            case []:
+                return Result.Ok(ContentToJsonConfig(selectors_res.ok, return_empty_result_res.ok))
+            case _:
+                return Result.Error(", ".join(errs))
 
 type ContentToJsonInput = list[DataDto]
 
-class ContentToJsonHandler(CustomActionHandlerWithoutConfig[list[ContentToJsonInput]]):
+class ContentToJsonHandler(CustomActionHandler[ContentToJsonConfig, ContentToJsonInput]):
     @property
     def action_name(self) -> ActionName:
         return ActionName("contenttojson")
+    
+    def validate_config(self, raw_config: dict[str, Any]) -> Result[ContentToJsonConfig, Any]:
+        return ContentToJsonConfig.from_dict(raw_config)
     
     def validate_input(self, dto_list: list[DataDto]) -> Result[ContentToJsonInput, Any]:
         if not dto_list:
@@ -31,7 +60,7 @@ class ContentToJsonHandler(CustomActionHandlerWithoutConfig[list[ContentToJsonIn
             return Result.Error("'content' key is missing")
         return Result.Ok(data_list)
     
-    async def handle(self, input_list: ContentToJsonInput) -> CompletedResult:
+    async def handle(self, config: ContentToJsonConfig, input_list: ContentToJsonInput) -> CompletedResult:
         @ex_to_error_result(Error.from_exception)
         def content_to_json(dict_with_content: DataDto):
             json_content = json.loads(dict_with_content["content"])
@@ -45,4 +74,9 @@ class ContentToJsonHandler(CustomActionHandlerWithoutConfig[list[ContentToJsonIn
                 err_msgs = map(str, to_error_list(*results))
                 return CompletedWith.Error(", ".join(err_msgs))
             case _:
-                return CompletedWith.Data(success_results)
+                match config.selectors:
+                    case None:
+                        return CompletedWith.Data(success_results)
+                    case _:
+                        get_from_json_config = GetFromJsonConfig(config.selectors, config.return_empty_result)
+                        return await GetFromJsonHandler().handle(get_from_json_config, success_results)
