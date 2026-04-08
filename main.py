@@ -1,5 +1,6 @@
 # import asyncio
 
+from actions.applyregex import ApplyRegexHandler
 from actions.contenttojson import ContentToJsonHandler
 from actions.filterjsonresponse import FilterJsonResponseHandler
 from actions.filtersuccessresponse import FilterSuccessResponseHandler
@@ -27,5 +28,6 @@ register_custom_action(GetContentFromJsonHandler())
 register_custom_action(FilterJsonResponseHandler())
 register_custom_action(ContentToJsonHandler())
 register_custom_action(GetFromJsonHandler())
+register_custom_action(ApplyRegexHandler())
 
 # asyncio.run(app.run())
