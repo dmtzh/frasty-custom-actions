@@ -151,7 +151,8 @@ class RequestUrlHandler(CustomActionHandlerWithoutConfig[list[RequestUrlInput]])
     
     async def handle(self, input_list: list[RequestUrlInput]) -> CompletedResult:
         @async_ex_to_error_result(RequestUrlUnexpectedError.from_exception)
-        async def request_data(session: aiohttp.ClientSession, timeout: aiohttp.ClientTimeout, input: RequestUrlInput) -> Result[dict[str, Any], RequestUrlUnexpectedError]:
+        async def request_data(session: aiohttp.ClientSession, delay_before_request: int, timeout: aiohttp.ClientTimeout, input: RequestUrlInput) -> Result[dict[str, Any], RequestUrlUnexpectedError]:
+            await asyncio.sleep(delay_before_request)
             try:
                 async with session.request(method=input.http_method, url=input.url.value, headers=input.headers, timeout=timeout) as response:
                     # bytes = await response.read()
@@ -176,9 +177,11 @@ class RequestUrlHandler(CustomActionHandlerWithoutConfig[list[RequestUrlInput]])
         tasks: list[Coroutine[Any, Any, Result[dict[str, Any], RequestUrlUnexpectedError]]] = []
         async with aiohttp.ClientSession() as session:
             timeout_15_seconds = aiohttp.ClientTimeout(total=15)
+            delay_before_request = 0
             for input in input_list:
-                task = request_data(session, timeout_15_seconds, input)
+                task = request_data(session, delay_before_request, timeout_15_seconds, input)
                 tasks.append(task)
+                delay_before_request += 5
             results = await asyncio.gather(*tasks)
             success_results = to_ok_list(*results)
             match success_results:
