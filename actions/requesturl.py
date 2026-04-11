@@ -8,18 +8,34 @@ from urllib.parse import urlparse
 import aiohttp
 from expression import Result, effect
 
-from shared.action import Action, ActionName, ActionType
+from shared.action import ActionName
 from shared.completedresult import CompletedResult, CompletedWith
 from shared.customtypes import Error
 from shared.pipeline.actionhandler import DataDto
 from shared.utils.asyncresult import async_ex_to_error_result
-from shared.utils.parse import parse_from_dict, parse_value
+from shared.utils.parse import parse_from_dict, parse_positive_int, parse_value
 from shared.utils.result import to_error_list, to_ok_list
 from shared.utils.string import strip_and_lowercase
 
-from customactionhandler import CustomActionHandlerWithoutConfig
+from customactionhandler import CustomActionHandler
 
-REQUEST_URL_ACTION = Action(ActionName("requesturl"), ActionType.CUSTOM)
+@dataclass(frozen=True)
+class RequestUrlConfig:
+    delay_between_requests: int
+
+    @staticmethod
+    def from_dict(data: dict[str, Any]) -> Result['RequestUrlConfig', str]:
+        def validate_delay_between_requests() -> Result[int, str]:
+            if "delay_between_requests" not in data:
+                return Result.Ok(0)
+            return parse_from_dict(data, "delay_between_requests", parse_positive_int)
+        delay_between_requests_res = validate_delay_between_requests()
+        errs = to_error_list(delay_between_requests_res)
+        match errs:
+            case []:
+                return Result.Ok(RequestUrlConfig(delay_between_requests_res.ok))
+            case _:
+                return Result.Error(", ".join(errs))
 
 class Url:
     """
@@ -132,10 +148,13 @@ class RequestUrlInput:
 class RequestUrlUnexpectedError(Error):
     '''Unexpected error when request url'''
 
-class RequestUrlHandler(CustomActionHandlerWithoutConfig[list[RequestUrlInput]]):
+class RequestUrlHandler(CustomActionHandler[RequestUrlConfig, list[RequestUrlInput]]):
     @property
     def action_name(self) -> ActionName:
         return ActionName("requesturl")
+    
+    def validate_config(self, raw_config: dict[str, Any]) -> Result[RequestUrlConfig, Any]:
+        return RequestUrlConfig.from_dict(raw_config)
     
     def validate_input(self, dto_list: list[DataDto]) -> Result[list[RequestUrlInput], Any]:
         if not dto_list:
@@ -149,7 +168,7 @@ class RequestUrlHandler(CustomActionHandlerWithoutConfig[list[RequestUrlInput]])
             case _:
                 return Result.Ok(data_list)
     
-    async def handle(self, input_list: list[RequestUrlInput]) -> CompletedResult:
+    async def handle(self, config: RequestUrlConfig, input_list: list[RequestUrlInput]) -> CompletedResult:
         @async_ex_to_error_result(RequestUrlUnexpectedError.from_exception)
         async def request_data(session: aiohttp.ClientSession, delay_before_request: int, timeout: aiohttp.ClientTimeout, input: RequestUrlInput) -> Result[dict[str, Any], RequestUrlUnexpectedError]:
             await asyncio.sleep(delay_before_request)
@@ -181,7 +200,7 @@ class RequestUrlHandler(CustomActionHandlerWithoutConfig[list[RequestUrlInput]])
             for input in input_list:
                 task = request_data(session, delay_before_request, timeout_15_seconds, input)
                 tasks.append(task)
-                delay_before_request += 5
+                delay_before_request += config.delay_between_requests
             results = await asyncio.gather(*tasks)
             success_results = to_ok_list(*results)
             match success_results:
