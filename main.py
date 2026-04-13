@@ -7,7 +7,6 @@ from actions.filtersuccessresponse import FilterSuccessResponseHandler
 from actions.filterhtmlresponse import FilterHtmlResponseHandler
 from actions.filternewdata.handler import FilterNewDataHandler
 from actions.getcontentfromhtml import GetContentFromHtmlHandler
-from actions.getcontentfromjson import GetContentFromJsonHandler
 from actions.getfromjson import GetFromJsonHandler
 from actions.getlinksfromhtml import GetLinksFromHtmlHandler
 from actions.requesturl import RequestUrlHandler
@@ -24,7 +23,6 @@ register_custom_action(GetContentFromHtmlHandler())
 register_custom_action(GetLinksFromHtmlHandler())
 register_custom_action(FilterNewDataHandler())
 register_custom_action(SendToViberChannelHandler(viber_api_config))
-register_custom_action(GetContentFromJsonHandler())
 register_custom_action(FilterJsonResponseHandler())
 register_custom_action(ContentToJsonHandler())
 register_custom_action(GetFromJsonHandler())
