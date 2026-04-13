@@ -122,6 +122,7 @@ class RequestUrlInput:
     url: Url
     http_method: HttpMethod
     headers: dict[str, str] | None
+    json: dict[str, Any] | None
     @staticmethod
     def from_dict(data: dict[str, Any]) -> Result['RequestUrlInput', str]:
         def validate_headers() -> Result[dict[str, str] | None, str]:
@@ -134,14 +135,25 @@ class RequestUrlInput:
                 headers_dict: dict[str, str] = yield from parse_value(raw_headers_dict, "headers", lambda headers: headers if all_keys_and_vals_str else None)
                 return headers_dict
             return parse_headers() if "headers" in data else Result.Ok(None)
+        def validate_json() -> Result[dict[str, Any] | None, str]:
+            @effect.result[dict[str, Any] | None, str]()
+            def parse_json():
+                raw_json_dict = yield from parse_from_dict(data, "json", lambda json: json if isinstance(json, dict) else None)
+                if not raw_json_dict:
+                    return None
+                all_keys_str = all(isinstance(k, str) for k in raw_json_dict)
+                json_dict: dict[str, Any] = yield from parse_value(raw_json_dict, "json", lambda json: json if all_keys_str else None)
+                return json_dict
+            return parse_json() if "json" in data else Result.Ok(None)
         
         url_res = parse_from_dict(data, "url", Url.parse)
         http_method_res = parse_from_dict(data, "http_method", HttpMethod.parse)
         headers_res = validate_headers()
-        errs = to_error_list(url_res, http_method_res, headers_res)
+        json_res = validate_json()
+        errs = to_error_list(url_res, http_method_res, headers_res, json_res)
         match errs:
             case []:
-                return Result.Ok(RequestUrlInput(url_res.ok, http_method_res.ok, headers_res.ok))
+                return Result.Ok(RequestUrlInput(url_res.ok, http_method_res.ok, headers_res.ok, json_res.ok))
             case errs:
                 return Result.Error(", ".join(errs))
 
@@ -173,7 +185,7 @@ class RequestUrlHandler(CustomActionHandler[RequestUrlConfig, list[RequestUrlInp
         async def request_data(session: aiohttp.ClientSession, delay_before_request: int, timeout: aiohttp.ClientTimeout, input: RequestUrlInput) -> Result[dict[str, Any], RequestUrlUnexpectedError]:
             await asyncio.sleep(delay_before_request)
             try:
-                async with session.request(method=input.http_method, url=input.url.value, headers=input.headers, timeout=timeout) as response:
+                async with session.request(method=input.http_method, url=input.url.value, headers=input.headers, json=input.json, timeout=timeout) as response:
                     # bytes = await response.read()
                     # json = await response.json()
                     # content_stream = response.content
