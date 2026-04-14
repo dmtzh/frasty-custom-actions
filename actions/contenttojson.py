@@ -13,29 +13,29 @@ from shared.utils.parse import parse_bool_str, parse_from_dict
 from shared.utils.result import to_ok_list, to_error_list
 
 from customactionhandler import CustomActionHandler
-from .getfromjson import GetFromJsonConfig, GetFromJsonConfigSelector, GetFromJsonHandler
+from .getfromjson import GetFromJsonConfig, GetFromJsonConfigOperation, GetFromJsonHandler
 
 @dataclass(frozen=True)
 class ContentToJsonConfig:
-    selectors: tuple[GetFromJsonConfigSelector, ...] | None
+    operations: tuple[GetFromJsonConfigOperation, ...] | None
     return_empty_result: bool
 
     @staticmethod
     def from_dict(data: dict[str, Any]) -> Result['ContentToJsonConfig', str]:
-        def validate_selectors() -> Result[tuple[GetFromJsonConfigSelector, ...] | None, str]:
-            if "selectors" not in data:
+        def validate_operations() -> Result[tuple[GetFromJsonConfigOperation, ...] | None, str]:
+            if "operations" not in data:
                 return Result.Ok(None)
-            return GetFromJsonConfig.from_dict(data).map(lambda config: config.selectors)
+            return GetFromJsonConfig.from_dict(data).map(lambda config: config.operations)
         def validate_return_empty_result() -> Result[bool, str]:
             if "return_empty_result" not in data:
                 return Result.Ok(False)
             return parse_from_dict(data, "return_empty_result", parse_bool_str)
-        selectors_res = validate_selectors()
+        operations_res = validate_operations()
         return_empty_result_res = validate_return_empty_result()
-        errs = to_error_list(selectors_res, return_empty_result_res)
+        errs = to_error_list(operations_res, return_empty_result_res)
         match errs:
             case []:
-                return Result.Ok(ContentToJsonConfig(selectors_res.ok, return_empty_result_res.ok))
+                return Result.Ok(ContentToJsonConfig(operations_res.ok, return_empty_result_res.ok))
             case _:
                 return Result.Error(", ".join(errs))
 
@@ -74,9 +74,9 @@ class ContentToJsonHandler(CustomActionHandler[ContentToJsonConfig, ContentToJso
                 err_msgs = map(str, to_error_list(*results))
                 return CompletedWith.Error(", ".join(err_msgs))
             case _:
-                match config.selectors:
+                match config.operations:
                     case None:
                         return CompletedWith.Data(success_results)
                     case _:
-                        get_from_json_config = GetFromJsonConfig(config.selectors, config.return_empty_result)
+                        get_from_json_config = GetFromJsonConfig(config.operations, config.return_empty_result)
                         return await GetFromJsonHandler().handle(get_from_json_config, success_results)
