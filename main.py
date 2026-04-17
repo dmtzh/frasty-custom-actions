@@ -7,7 +7,7 @@ from actions.filtersuccessresponse import FilterSuccessResponseHandler
 from actions.filterhtmlresponse import FilterHtmlResponseHandler
 from actions.filternewdata.handler import FilterNewDataHandler
 from actions.getcontentfromhtml import GetContentFromHtmlHandler
-from actions.getfromjson import GetFromJsonHandler
+from actions.getfromjson.handler import GetFromJsonHandler
 from actions.getlinksfromhtml import GetLinksFromHtmlHandler
 from actions.requesturl import RequestUrlHandler
 from actions.sendtoviberchannel.handler import SendToViberChannelHandler

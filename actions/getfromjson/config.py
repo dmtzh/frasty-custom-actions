@@ -1,20 +1,11 @@
 from dataclasses import dataclass
 from enum import StrEnum
-import functools
-from typing import Any, Callable
+from typing import Any
 
 from expression import Result
-import jsonpath_ng.ext as jpx
 
-from shared.action import ActionName
-from shared.completedresult import CompletedResult, CompletedWith
-from shared.customtypes import Error
-from shared.pipeline.actionhandler import DataDto
-from shared.utils.asyncresult import ex_to_error_result
 from shared.utils.parse import parse_bool_str, parse_from_dict, parse_non_empty_str
-from shared.utils.result import to_ok_list, to_error_list
-
-from customactionhandler import CustomActionHandler
+from shared.utils.result import to_error_list, to_ok_list
 
 class Operation(StrEnum):
     QUERY = "query"
@@ -59,37 +50,6 @@ class GetFromJsonConfigOperation:
         config_res = operation_res.bind(validate_config)
         return config_res
 
-@ex_to_error_result(Error.from_exception)
-def jsonpath_ng_query_handler(input_list, operation: GetFromJsonConfigOperation):
-    def match_value_to_result(match_value, default_value):
-        match match_value:
-            case None if default_value is not None:
-                return default_value
-            case _:
-                return match_value
-    def query_get_all(input, operation: GetFromJsonConfigOperation):
-        jp_query = jpx.parse(operation.query)
-        matches = [match_value_to_result(match.value, operation.default_value) for match in jp_query.find(input)]
-        return matches
-    def get_from_input(input, operation: GetFromJsonConfigOperation):
-        matches = query_get_all(input, operation)
-        match operation.output_name:
-            case None:
-                return matches
-            case output_name:
-                dict_without_output_name = {k:v for k, v in input.items() if k != output_name}
-                output_list = [dict_without_output_name | {output_name: match} for match in matches]
-                return output_list
-    return functools.reduce(lambda acc, curr: acc + get_from_input(curr, operation), input_list, [])
-type OperationHandlerFunc = Callable[[list, GetFromJsonConfigOperation], Result[list, Error]]
-OPERATION_HANDLERS: dict[Operation, OperationHandlerFunc] = {
-    Operation.QUERY: jsonpath_ng_query_handler
-}
-def dispatch_to_operation_handler(input: list, selector: GetFromJsonConfigOperation) -> Result[list, Error]:
-    try:
-        return OPERATION_HANDLERS[selector.operation](input, selector)
-    except KeyError:
-        raise ValueError(f"Unsupported operation: {selector.operation}")
 
 @dataclass(frozen=True)
 class GetFromJsonConfig:
@@ -134,25 +94,3 @@ class GetFromJsonConfig:
                 return Result.Ok(GetFromJsonConfig(operations_res.ok, return_empty_result_res.ok))
             case _:
                 return Result.Error(", ".join(errs))
-
-type GetFromJsonInput = list[DataDto]
-
-class GetFromJsonHandler(CustomActionHandler[GetFromJsonConfig, GetFromJsonInput]):
-    @property
-    def action_name(self) -> ActionName:
-        return ActionName("getfromjson")
-    
-    def validate_config(self, raw_config: dict[str, Any]) -> Result[GetFromJsonConfig, Any]:
-        return GetFromJsonConfig.from_dict(raw_config)
-    
-    def validate_input(self, dto_list: list[DataDto]) -> Result[GetFromJsonInput, Any]:
-        return Result.Ok(dto_list)
-    
-    async def handle(self, config: GetFromJsonConfig, input_list: GetFromJsonInput) -> CompletedResult:
-        def ok_to_completed_result(result_data: list):
-            return CompletedWith.Data(result_data) if result_data or config.return_empty_result else CompletedWith.NoData()
-        def err_to_completed_result(err):
-            return CompletedWith.Error(str(err))
-        
-        res = functools.reduce(lambda acc_res, operation: acc_res.bind(lambda acc: dispatch_to_operation_handler(acc, operation)), config.operations, Result.Ok(input_list))
-        return res.map(ok_to_completed_result).default_with(err_to_completed_result)

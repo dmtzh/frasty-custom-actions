@@ -13,7 +13,9 @@ from shared.utils.parse import parse_bool_str, parse_from_dict
 from shared.utils.result import to_ok_list, to_error_list
 
 from customactionhandler import CustomActionHandler
-from .getfromjson import GetFromJsonConfig, GetFromJsonConfigOperation, GetFromJsonHandler
+
+from .getfromjson.config import GetFromJsonConfig, GetFromJsonConfigOperation
+from .getfromjson.handler import GetFromJsonHandler
 
 @dataclass(frozen=True)
 class ContentToJsonConfig:
