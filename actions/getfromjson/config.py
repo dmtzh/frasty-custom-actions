@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from typing import Any, Optional
 
 from expression import Result
 
@@ -9,22 +9,39 @@ from shared.utils.result import to_error_list, to_ok_list
 
 class Operation(StrEnum):
     QUERY = "query"
+    FILTER = "filter"
+
+class GetFromJsonFilter(str):
+    '''Filter operation configuration'''
+
+    @staticmethod
+    def parse(raw_filter: str) -> Optional['GetFromJsonFilter']:
+        opt_filter = parse_non_empty_str(raw_filter)
+        return GetFromJsonFilter(opt_filter) if opt_filter is not None else None
 
 @dataclass(frozen=True)
 class GetFromJsonConfigOperation:
     operation: Operation
-    query: str
+    query: str | None
     output_name: str | None
     default_value: Any | None
+    data: GetFromJsonFilter | None
+
+    @staticmethod
+    def _from_filter(filter: GetFromJsonFilter):
+        return GetFromJsonConfigOperation(Operation.FILTER, None, None, None, filter)
 
     @staticmethod
     def from_dict(data: dict) -> Result['GetFromJsonConfigOperation', str]:
         def parse_operation() -> Result[Operation, str]:
             is_query_operation = "query" in data
-            match is_query_operation:
-                case True:
+            is_filter_operation = "filter" in data
+            match is_query_operation, is_filter_operation:
+                case True, False:
                     return Result.Ok(Operation.QUERY)
-                case False:
+                case False, True:
+                    return Result.Ok(Operation.FILTER)
+                case _:
                     return Result.Error(f"invalid 'operation' value {data}")
         def validate_query_config() -> Result[GetFromJsonConfigOperation, str]:
             def validate_query() -> Result[str, str]:
@@ -39,13 +56,20 @@ class GetFromJsonConfigOperation:
             errs = to_error_list(query_res, output_name_res)
             match errs:
                 case []:
-                    return Result.Ok(GetFromJsonConfigOperation(Operation.QUERY, query_res.ok, output_name_res.ok, default_value))
+                    return Result.Ok(GetFromJsonConfigOperation(Operation.QUERY, query_res.ok, output_name_res.ok, default_value, None))
                 case _:
                     return Result.Error(", ".join(errs))
+        def validate_filter_config() -> Result[GetFromJsonConfigOperation, str]:
+            def validate_filter() -> Result[GetFromJsonFilter, str]:
+                return parse_from_dict(data, "filter", GetFromJsonFilter.parse)
+            filter_res = validate_filter()
+            return filter_res.map(GetFromJsonConfigOperation._from_filter)
         def validate_config(operation: Operation) -> Result[GetFromJsonConfigOperation, str]:
             match operation:
                 case Operation.QUERY:
                     return validate_query_config()
+                case Operation.FILTER:
+                    return validate_filter_config()
         operation_res = parse_operation()
         config_res = operation_res.bind(validate_config)
         return config_res

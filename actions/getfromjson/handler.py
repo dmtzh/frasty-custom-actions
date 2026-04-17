@@ -3,6 +3,7 @@ import functools
 from typing import Any
 
 from expression import Result
+import jmespath
 import jsonpath_ng.ext as jpx
 
 from shared.action import ActionName
@@ -40,15 +41,24 @@ def jsonpath_ng_query_handler(input_list, operation: GetFromJsonConfigOperation)
                 output_list = [dict_without_output_name | {output_name: match} for match in matches]
                 return output_list
     return functools.reduce(lambda acc, curr: acc + get_from_input(curr, operation), input_list, [])
+
+@ex_to_error_result(Error.from_exception)
+def jmespath_filter_handler(input_list, operation: GetFromJsonConfigOperation) -> list:
+    if operation.data is None:
+        raise ValueError("filter expression is required")
+    expression = f"[?{operation.data}]"
+    return jmespath.search(expression, input_list)
+
 OPERATION_HANDLERS: dict[Operation, OperationHandlerFunc] = {
-    Operation.QUERY: jsonpath_ng_query_handler
+    Operation.QUERY: jsonpath_ng_query_handler,
+    Operation.FILTER: jmespath_filter_handler
 }
 
-def dispatch_to_operation_handler(input: list, selector: GetFromJsonConfigOperation) -> Result[list, Error]:
+def dispatch_to_operation_handler(input: list, operation: GetFromJsonConfigOperation) -> Result[list, Error]:
     try:
-        return OPERATION_HANDLERS[selector.operation](input, selector)
+        return OPERATION_HANDLERS[operation.operation](input, operation)
     except KeyError:
-        raise ValueError(f"Unsupported operation: {selector.operation}")
+        raise ValueError(f"Unsupported operation: {operation.operation}")
 
 class GetFromJsonHandler(CustomActionHandler[GetFromJsonConfig, GetFromJsonInput]):
     @property
