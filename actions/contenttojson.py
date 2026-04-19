@@ -14,17 +14,17 @@ from shared.utils.result import to_ok_list, to_error_list
 
 from customactionhandler import CustomActionHandler
 
-from .getfromjson.config import GetFromJsonConfig, GetFromJsonConfigOperation
+from .getfromjson.config import GetFromJsonConfig, GetFromJsonOperationConfig
 from .getfromjson.handler import GetFromJsonHandler
 
 @dataclass(frozen=True)
 class ContentToJsonConfig:
-    operations: tuple[GetFromJsonConfigOperation, ...] | None
+    operations: tuple[GetFromJsonOperationConfig, ...] | None
     return_empty_result: bool
 
     @staticmethod
     def from_dict(data: dict[str, Any]) -> Result['ContentToJsonConfig', str]:
-        def validate_operations() -> Result[tuple[GetFromJsonConfigOperation, ...] | None, str]:
+        def validate_operations() -> Result[tuple[GetFromJsonOperationConfig, ...] | None, str]:
             if "operations" not in data:
                 return Result.Ok(None)
             return GetFromJsonConfig.from_dict(data).map(lambda config: config.operations)
