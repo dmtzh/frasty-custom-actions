@@ -5,7 +5,7 @@ from typing import Any
 from expression import Result
 
 from shared.utils.parse import parse_bool_str, parse_from_dict, parse_non_empty_str
-from shared.utils.result import to_error_list, to_ok_list
+from shared.utils.result import to_error_list
 
 class Operation(StrEnum):
     QUERY = "query"
@@ -101,13 +101,13 @@ class GetFromJsonConfig:
                     return Result.Error(f"invalid 'operation' value {raw_operation}")
         def validate_raw_operations(raw_operations: list[Any]) -> Result[tuple[GetFromJsonOperationConfig, ...], str]:
             operations_res_list = [validate_raw_operation(raw_operation) for raw_operation in raw_operations]
-            operations_list = to_ok_list(*operations_res_list)
-            match operations_list:
+            errs = to_error_list(*operations_res_list)
+            match errs:
                 case []:
-                    errs = to_error_list(*operations_res_list)
-                    return Result.Error(", ".join(errs))
+                    operations_tuple = tuple(operation_res.ok for operation_res in operations_res_list)
+                    return Result.Ok(operations_tuple)
                 case _:
-                    return Result.Ok(tuple(operations_list))
+                    return Result.Error(", ".join(errs))
         def validate_operations() -> Result[tuple[GetFromJsonOperationConfig, ...], str]:
             raw_operations_res = parse_from_dict(data, "operations", lambda operations: operations if isinstance(operations, list) and operations else None)
             operations_res = raw_operations_res.bind(validate_raw_operations)
