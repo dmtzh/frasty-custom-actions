@@ -10,6 +10,7 @@ from shared.utils.result import to_error_list
 class Operation(StrEnum):
     QUERY = "query"
     FILTER = "filter"
+    MAP = "map"
 
 @dataclass(frozen=True)
 class GetFromJsonQuery:
@@ -44,10 +45,18 @@ class GetFromJsonFilter(str):
         filter_str_res = parse_from_dict(data, "filter", parse_non_empty_str)
         return filter_str_res.map(GetFromJsonFilter)
 
+class GetFromJsonMap(str):
+    '''Map operation configuration'''
+
+    @staticmethod
+    def from_dict(data: dict) -> Result['GetFromJsonMap', str]:
+        filter_str_res = parse_from_dict(data, "map", parse_non_empty_str)
+        return filter_str_res.map(GetFromJsonMap)
+
 @dataclass(frozen=True)
 class GetFromJsonOperationConfig:
     operation: Operation
-    data: GetFromJsonQuery | GetFromJsonFilter
+    data: GetFromJsonQuery | GetFromJsonFilter | GetFromJsonMap
 
     @staticmethod
     def _from_query(query: GetFromJsonQuery):
@@ -56,17 +65,24 @@ class GetFromJsonOperationConfig:
     @staticmethod
     def _from_filter(filter: GetFromJsonFilter):
         return GetFromJsonOperationConfig(Operation.FILTER, filter)
+    
+    @staticmethod
+    def _from_map(map: GetFromJsonMap):
+        return GetFromJsonOperationConfig(Operation.MAP, map)
 
     @staticmethod
     def from_dict(data: dict) -> Result['GetFromJsonOperationConfig', str]:
         def parse_operation() -> Result[Operation, str]:
             is_query_operation = "query" in data
             is_filter_operation = "filter" in data
-            match is_query_operation, is_filter_operation:
-                case True, False:
+            is_map_operation = "map" in data
+            match is_query_operation, is_filter_operation, is_map_operation:
+                case True, False, False:
                     return Result.Ok(Operation.QUERY)
-                case False, True:
+                case False, True, False:
                     return Result.Ok(Operation.FILTER)
+                case False, False, True:
+                    return Result.Ok(Operation.MAP)
                 case _:
                     return Result.Error(f"invalid 'operation' value {data}")
         def validate_query_config() -> Result[GetFromJsonOperationConfig, str]:
@@ -75,12 +91,17 @@ class GetFromJsonOperationConfig:
         def validate_filter_config() -> Result[GetFromJsonOperationConfig, str]:
             filter_res = GetFromJsonFilter.from_dict(data)
             return filter_res.map(GetFromJsonOperationConfig._from_filter)
+        def validate_map_config() -> Result[GetFromJsonOperationConfig, str]:
+            map_res = GetFromJsonMap.from_dict(data)
+            return map_res.map(GetFromJsonOperationConfig._from_map)
         def validate_config(operation: Operation) -> Result[GetFromJsonOperationConfig, str]:
             match operation:
                 case Operation.QUERY:
                     return validate_query_config()
                 case Operation.FILTER:
                     return validate_filter_config()
+                case Operation.MAP:
+                    return validate_map_config()
         operation_res = parse_operation()
         config_res = operation_res.bind(validate_config)
         return config_res
