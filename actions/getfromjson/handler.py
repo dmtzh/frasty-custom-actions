@@ -46,6 +46,13 @@ def jsonpath_ng_query_handler(input_list, operation: GetFromJsonOperationConfig)
     return functools.reduce(lambda acc, curr: acc + get_from_input(curr, data), input_list, [])
 
 @ex_to_error_result(Error.from_exception)
+def jmespath_query_handler(input_list, operation: GetFromJsonOperationConfig) -> list:
+    if not isinstance(operation.data, GetFromJsonQuery):
+        raise ValueError(f"Invalid 'operation' value {operation}")
+    expression = f"[].{operation.data.query}"
+    return jmespath.search(expression, input_list)
+
+@ex_to_error_result(Error.from_exception)
 def jmespath_filter_handler(input_list, operation: GetFromJsonOperationConfig) -> list:
     if not isinstance(operation.data, GetFromJsonFilter):
         raise ValueError(f"Invalid 'operation' value {operation}")
@@ -61,6 +68,7 @@ def jmespath_map_handler(input_list, operation: GetFromJsonOperationConfig) -> l
 
 OPERATION_HANDLERS: dict[Operation, OperationHandlerFunc] = {
     Operation.QUERY: jsonpath_ng_query_handler,
+    Operation.JMESPATHQUERY: jmespath_query_handler,
     Operation.FILTER: jmespath_filter_handler,
     Operation.MAP: jmespath_map_handler
 }

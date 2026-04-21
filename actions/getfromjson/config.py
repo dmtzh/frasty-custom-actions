@@ -1,21 +1,40 @@
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from typing import Any, Optional
 
 from expression import Result
 
 from shared.utils.parse import parse_bool_str, parse_from_dict, parse_non_empty_str
 from shared.utils.result import to_error_list
+from shared.utils.string import strip_and_lowercase
 
 class Operation(StrEnum):
     QUERY = "query"
+    JMESPATHQUERY = "jmespathquery"
     FILTER = "filter"
     MAP = "map"
+
+class Parser(StrEnum):
+    JSONPATH_NG = "jsonpath-ng"
+    JMESPATH = "jmespath"
+
+    @staticmethod
+    def parse(parser: str) -> Optional['Parser']:
+        if parser is None:
+            return None
+        match strip_and_lowercase(parser):
+            case Parser.JSONPATH_NG.value:
+                return Parser.JSONPATH_NG
+            case Parser.JMESPATH.value:
+                return Parser.JMESPATH
+            case _:
+                return None
 
 @dataclass(frozen=True)
 class GetFromJsonQuery:
     '''Query operation configuration'''
     query: str
+    parser: Parser
     output_name: str | None
     default_value: Any | None
 
@@ -23,17 +42,23 @@ class GetFromJsonQuery:
     def from_dict(data: dict) -> Result['GetFromJsonQuery', str]:
         def validate_query() -> Result[str, str]:
             return parse_from_dict(data, "query", parse_non_empty_str)
+        def validate_parser() -> Result[Parser, str]:
+            if "parser" in data:
+                return parse_from_dict(data, "parser", Parser.parse)
+            else:
+                return Result.Ok(Parser.JSONPATH_NG)
         def validate_output_name() -> Result[str | None, str]:
             if "output_name" not in data:
                 return Result.Ok(None)
             return parse_from_dict(data, "output_name", parse_non_empty_str)
         query_res = validate_query()
+        parser_res = validate_parser()
         output_name_res = validate_output_name()
         default_value = data.get("default_value")
-        errs = to_error_list(query_res, output_name_res)
+        errs = to_error_list(query_res, parser_res, output_name_res)
         match errs:
             case []:
-                return Result.Ok(GetFromJsonQuery(query_res.ok, output_name_res.ok, default_value))
+                return Result.Ok(GetFromJsonQuery(query_res.ok, parser_res.ok, output_name_res.ok, default_value))
             case _:
                 return Result.Error(", ".join(errs))
 
@@ -60,6 +85,11 @@ class GetFromJsonOperationConfig:
 
     @staticmethod
     def _from_query(query: GetFromJsonQuery):
+        match query.parser:
+            case Parser.JSONPATH_NG:
+                return GetFromJsonOperationConfig(Operation.QUERY, query)
+            case Parser.JMESPATH:
+                return GetFromJsonOperationConfig(Operation.JMESPATHQUERY, query)
         return GetFromJsonOperationConfig(Operation.QUERY, query)
 
     @staticmethod
@@ -96,7 +126,7 @@ class GetFromJsonOperationConfig:
             return map_res.map(GetFromJsonOperationConfig._from_map)
         def validate_config(operation: Operation) -> Result[GetFromJsonOperationConfig, str]:
             match operation:
-                case Operation.QUERY:
+                case Operation.QUERY | Operation.JMESPATHQUERY:
                     return validate_query_config()
                 case Operation.FILTER:
                     return validate_filter_config()
