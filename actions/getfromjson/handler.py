@@ -14,7 +14,7 @@ from shared.utils.asyncresult import ex_to_error_result
 
 from customactionhandler import CustomActionHandler
 
-from .config import GetFromJsonFilter, GetFromJsonMap, GetFromJsonQuery, Operation, GetFromJsonConfig, GetFromJsonOperationConfig
+from .config import GetFromJsonFilter, GetFromJsonQuery, Operation, GetFromJsonConfig, GetFromJsonOperationConfig
 
 type GetFromJsonInput = list[DataDto]
 type OperationHandlerFunc = Callable[[list, GetFromJsonOperationConfig], Result[list, Error]]
@@ -59,18 +59,10 @@ def jmespath_filter_handler(input_list, operation: GetFromJsonOperationConfig) -
     expression = f"[?{operation.data}]"
     return jmespath.search(expression, input_list)
 
-@ex_to_error_result(Error.from_exception)
-def jmespath_map_handler(input_list, operation: GetFromJsonOperationConfig) -> list:
-    if not isinstance(operation.data, GetFromJsonMap):
-        raise ValueError(f"Invalid 'operation' value {operation}")
-    expression = f"[].{operation.data}"
-    return jmespath.search(expression, input_list)
-
 OPERATION_HANDLERS: dict[Operation, OperationHandlerFunc] = {
     Operation.QUERY: jsonpath_ng_query_handler,
     Operation.JMESPATHQUERY: jmespath_query_handler,
-    Operation.FILTER: jmespath_filter_handler,
-    Operation.MAP: jmespath_map_handler
+    Operation.FILTER: jmespath_filter_handler
 }
 
 def dispatch_to_operation_handler(input: list, operation: GetFromJsonOperationConfig) -> Result[list, Error]:
