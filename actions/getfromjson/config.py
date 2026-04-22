@@ -45,7 +45,7 @@ class GetFromJsonQuery:
             if "parser" in data:
                 return parse_from_dict(data, "parser", Parser.parse)
             else:
-                return Result.Ok(Parser.JSONPATH_NG)
+                return Result.Ok(Parser.JMESPATH)
         def validate_output_name() -> Result[str | None, str]:
             if "output_name" not in data:
                 return Result.Ok(None)
