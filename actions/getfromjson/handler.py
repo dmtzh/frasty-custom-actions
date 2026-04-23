@@ -59,10 +59,20 @@ def jmespath_filter_handler(input_list, operation: GetFromJsonOperationConfig) -
     expression = f"[?{operation.data}]"
     return jmespath.search(expression, input_list)
 
+@ex_to_error_result(Error.from_exception)
+def jsonpath_ng_filter_handler(input_list, operation: GetFromJsonOperationConfig) -> list:
+    if not isinstance(operation.data, GetFromJsonFilter):
+        raise ValueError(f"Invalid 'operation' value {operation}")
+    expression = f"$[?{operation.data}]"
+    jp_query = jpx.parse(expression)
+    matches = [match.value for match in jp_query.find(input_list)]
+    return matches
+
 OPERATION_HANDLERS: dict[tuple[Operation, Parser], OperationHandlerFunc] = {
     (Operation.QUERY, Parser.JMESPATH): jmespath_query_handler,
     (Operation.QUERY, Parser.JSONPATH_NG): jsonpath_ng_query_handler,
-    (Operation.FILTER, Parser.JMESPATH): jmespath_filter_handler
+    (Operation.FILTER, Parser.JMESPATH): jmespath_filter_handler,
+    (Operation.FILTER, Parser.JSONPATH_NG): jsonpath_ng_filter_handler
 }
 
 def dispatch_to_operation_handler(input: list, operation: GetFromJsonOperationConfig) -> Result[list, Error]:
