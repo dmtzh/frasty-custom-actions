@@ -10,7 +10,6 @@ from shared.utils.string import strip_and_lowercase
 
 class Operation(StrEnum):
     QUERY = "query"
-    JMESPATHQUERY = "jmespathquery"
     FILTER = "filter"
 
 class Parser(StrEnum):
@@ -33,7 +32,6 @@ class Parser(StrEnum):
 class GetFromJsonQuery:
     '''Query operation configuration'''
     query: str
-    parser: Parser
     output_name: str | None
     default_value: Any | None
 
@@ -41,23 +39,17 @@ class GetFromJsonQuery:
     def from_dict(data: dict) -> Result['GetFromJsonQuery', str]:
         def validate_query() -> Result[str, str]:
             return parse_from_dict(data, "query", parse_non_empty_str)
-        def validate_parser() -> Result[Parser, str]:
-            if "parser" in data:
-                return parse_from_dict(data, "parser", Parser.parse)
-            else:
-                return Result.Ok(Parser.JMESPATH)
         def validate_output_name() -> Result[str | None, str]:
             if "output_name" not in data:
                 return Result.Ok(None)
             return parse_from_dict(data, "output_name", parse_non_empty_str)
         query_res = validate_query()
-        parser_res = validate_parser()
         output_name_res = validate_output_name()
         default_value = data.get("default_value")
-        errs = to_error_list(query_res, parser_res, output_name_res)
+        errs = to_error_list(query_res, output_name_res)
         match errs:
             case []:
-                return Result.Ok(GetFromJsonQuery(query_res.ok, parser_res.ok, output_name_res.ok, default_value))
+                return Result.Ok(GetFromJsonQuery(query_res.ok, output_name_res.ok, default_value))
             case _:
                 return Result.Error(", ".join(errs))
 
@@ -72,21 +64,9 @@ class GetFromJsonFilter(str):
 @dataclass(frozen=True)
 class GetFromJsonOperationConfig:
     operation: Operation
+    parser: Parser
     data: GetFromJsonQuery | GetFromJsonFilter
 
-    @staticmethod
-    def _from_query(query: GetFromJsonQuery):
-        match query.parser:
-            case Parser.JSONPATH_NG:
-                return GetFromJsonOperationConfig(Operation.QUERY, query)
-            case Parser.JMESPATH:
-                return GetFromJsonOperationConfig(Operation.JMESPATHQUERY, query)
-        return GetFromJsonOperationConfig(Operation.QUERY, query)
-
-    @staticmethod
-    def _from_filter(filter: GetFromJsonFilter):
-        return GetFromJsonOperationConfig(Operation.FILTER, filter)
-    
     @staticmethod
     def from_dict(data: dict) -> Result['GetFromJsonOperationConfig', str]:
         def parse_operation() -> Result[Operation, str]:
@@ -99,22 +79,25 @@ class GetFromJsonOperationConfig:
                     return Result.Ok(Operation.FILTER)
                 case _:
                     return Result.Error(f"invalid 'operation' value {data}")
-        def validate_query_config() -> Result[GetFromJsonOperationConfig, str]:
-            query_res = GetFromJsonQuery.from_dict(data)
-            return query_res.map(GetFromJsonOperationConfig._from_query)
-        def validate_filter_config() -> Result[GetFromJsonOperationConfig, str]:
-            filter_res = GetFromJsonFilter.from_dict(data)
-            return filter_res.map(GetFromJsonOperationConfig._from_filter)
-        def validate_config(operation: Operation) -> Result[GetFromJsonOperationConfig, str]:
+        def parse_parser() -> Result[Parser, str]:
+            if "parser" in data:
+                return parse_from_dict(data, "parser", Parser.parse)
+            else:
+                return Result.Ok(Parser.JMESPATH)
+        def validate_config(operation: Operation, parser: Parser) -> Result[GetFromJsonOperationConfig, str]:
             match operation:
-                case Operation.QUERY | Operation.JMESPATHQUERY:
-                    return validate_query_config()
+                case Operation.QUERY:
+                    return GetFromJsonQuery.from_dict(data).map(lambda data: GetFromJsonOperationConfig(operation, parser, data))
                 case Operation.FILTER:
-                    return validate_filter_config()
+                    return GetFromJsonFilter.from_dict(data).map(lambda data: GetFromJsonOperationConfig(operation, parser, data))
         operation_res = parse_operation()
-        config_res = operation_res.bind(validate_config)
-        return config_res
-
+        parser_res = parse_parser()
+        errs = to_error_list(operation_res, parser_res)
+        match errs:
+            case []:
+                return validate_config(operation_res.ok, parser_res.ok)
+            case _:
+                return Result.Error(", ".join(errs))
 
 @dataclass(frozen=True)
 class GetFromJsonConfig:
