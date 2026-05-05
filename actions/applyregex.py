@@ -51,7 +51,7 @@ class ApplyRegexHandler(CustomActionHandler[ApplyRegexConfig, ApplyRegexInput]):
     def validate_config(self, raw_config: dict[str, Any]) -> Result[ApplyRegexConfig, Any]:
         return ApplyRegexConfig.from_dict(raw_config)
     
-    def validate_input(self, dto_list: list[DataDto]) -> Result[ApplyRegexInput, Any]:
+    def validate_input(self, _: ApplyRegexConfig, dto_list: list[DataDto]) -> Result[ApplyRegexInput, Any]:
         return Result.Ok(dto_list)
     
     async def handle(self, config: ApplyRegexConfig, input_list: ApplyRegexInput) -> CompletedResult:

@@ -89,7 +89,7 @@ class GetFromJsonHandler(CustomActionHandler[GetFromJsonConfig, GetFromJsonInput
     def validate_config(self, raw_config: dict[str, Any]) -> Result[GetFromJsonConfig, Any]:
         return GetFromJsonConfig.from_dict(raw_config)
 
-    def validate_input(self, dto_list: list[DataDto]) -> Result[GetFromJsonInput, Any]:
+    def validate_input(self, _: GetFromJsonConfig, dto_list: list[DataDto]) -> Result[GetFromJsonInput, Any]:
         return Result.Ok(dto_list)
 
     async def handle(self, config: GetFromJsonConfig, input_list: GetFromJsonInput) -> CompletedResult:

@@ -115,7 +115,7 @@ class SendToViberChannelHandler(CustomActionHandler[SendToViberChannelConfig, Se
     def validate_config(self, raw_config: dict[str, Any]) -> Result[SendToViberChannelConfig, Any]:
         return SendToViberChannelConfig.from_dict(raw_config)
     
-    def validate_input(self, dto_list: list[DataDto]) -> Result[SendToViberChannelInput, Any]:
+    def validate_input(self, _: SendToViberChannelConfig, dto_list: list[DataDto]) -> Result[SendToViberChannelInput, Any]:
         if not dto_list:
             return Result.Error("input data is missing")
         return Result.Ok(dto_list)

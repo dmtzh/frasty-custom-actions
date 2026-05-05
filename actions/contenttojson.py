@@ -51,7 +51,7 @@ class ContentToJsonHandler(CustomActionHandler[ContentToJsonConfig, ContentToJso
     def validate_config(self, raw_config: dict[str, Any]) -> Result[ContentToJsonConfig, Any]:
         return ContentToJsonConfig.from_dict(raw_config)
     
-    def validate_input(self, dto_list: list[DataDto]) -> Result[ContentToJsonInput, Any]:
+    def validate_input(self, _: ContentToJsonConfig, dto_list: list[DataDto]) -> Result[ContentToJsonInput, Any]:
         if not dto_list:
             return Result.Error("input data is missing")
         def from_dict(data: DataDto):

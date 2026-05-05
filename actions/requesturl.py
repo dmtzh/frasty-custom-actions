@@ -168,7 +168,7 @@ class RequestUrlHandler(CustomActionHandler[RequestUrlConfig, list[RequestUrlInp
     def validate_config(self, raw_config: dict[str, Any]) -> Result[RequestUrlConfig, Any]:
         return RequestUrlConfig.from_dict(raw_config)
     
-    def validate_input(self, dto_list: list[DataDto]) -> Result[list[RequestUrlInput], Any]:
+    def validate_input(self, _: RequestUrlConfig, dto_list: list[DataDto]) -> Result[list[RequestUrlInput], Any]:
         if not dto_list:
             return Result.Error("input data is missing")
         data_res_list = [RequestUrlInput.from_dict(data) for data in dto_list]

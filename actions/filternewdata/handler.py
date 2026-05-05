@@ -66,7 +66,7 @@ class FilterNewDataHandler(CustomActionHandler[FilterNewDataConfig, FilterNewDat
     def validate_config(self, raw_config: dict[str, Any]) -> Result[FilterNewDataConfig, Any]:
         return FilterNewDataConfig.from_dict(raw_config)
     
-    def validate_input(self, dto_list: list[DataDto]) -> Result[FilterNewDataInput, Any]:
+    def validate_input(self, _: FilterNewDataConfig, dto_list: list[DataDto]) -> Result[FilterNewDataInput, Any]:
         return Result.Ok(dto_list)
     
     async def handle(self, config: FilterNewDataConfig, input: FilterNewDataInput) -> CompletedResult:

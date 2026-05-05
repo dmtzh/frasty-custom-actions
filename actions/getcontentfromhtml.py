@@ -114,7 +114,7 @@ class GetContentFromHtmlHandler(CustomActionHandler[GetContentFromHtmlConfig, Ge
     def validate_config(self, raw_config: dict[str, Any]) -> Result[GetContentFromHtmlConfig, Any]:
         return GetContentFromHtmlConfig.from_dict(raw_config)
     
-    def validate_input(self, dto_list: list[DataDto]) -> Result[GetContentFromHtmlInput, Any]:
+    def validate_input(self, _: GetContentFromHtmlConfig, dto_list: list[DataDto]) -> Result[GetContentFromHtmlInput, Any]:
         return Result.Ok(dto_list)
     
     async def handle(self, config: GetContentFromHtmlConfig, input_list: GetContentFromHtmlInput) -> CompletedResult:

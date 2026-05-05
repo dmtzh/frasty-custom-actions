@@ -57,7 +57,7 @@ class GetLinksFromHtmlHandler(CustomActionHandler[GetLinksFromHtmlConfig, GetLin
     def validate_config(self, raw_config: dict[str, Any]) -> Result[GetLinksFromHtmlConfig, Any]:
         return GetLinksFromHtmlConfig.from_dict(raw_config)
     
-    def validate_input(self, dto_list: list[DataDto]) -> Result[GetLinksFromHtmlInput, Any]:
+    def validate_input(self, _: GetLinksFromHtmlConfig, dto_list: list[DataDto]) -> Result[GetLinksFromHtmlInput, Any]:
         def from_dict(data: DataDto):
             content_res = parse_from_dict(data, "content", lambda content: content if isinstance(content, str) else None)
             return content_res.map(lambda _: data)
