@@ -4,6 +4,7 @@ from typing import Any
 
 from expression import Result
 import jmespath
+from jmespath import functions
 import jsonpath_ng.ext as jpx
 
 from shared.action import ActionName
@@ -45,12 +46,31 @@ def jsonpath_ng_query_handler(input_list, operation: GetFromJsonOperationConfig)
                 return output_list
     return functools.reduce(lambda acc, curr: acc + get_from_input(curr, data), input_list, [])
 
+# Create a closure to act as a persistent counter
+def make_counter():
+    count = [0]  # Using a list to make it mutable inside the inner function
+    def _(step):
+        count[0] += step
+        return count[0]
+    return _
+
+class JmespathCustomFunctions(functions.Functions):
+    def __init__(self):
+        super().__init__()
+        self.counter = make_counter()
+
+    # Define the signature of custom function 'inc()'
+    @functions.signature({'types': ['number']})
+    def _func_inc(self, step):
+        return self.counter(step)
+
 @ex_to_error_result(Error.from_exception)
 def jmespath_query_handler(input_list, operation: GetFromJsonOperationConfig) -> list:
     if not isinstance(operation.data, GetFromJsonQuery):
         raise ValueError(f"Invalid 'operation' value {operation}")
     expression = f"[].{operation.data.query}"
-    return jmespath.search(expression, input_list)
+    options = jmespath.Options(custom_functions=JmespathCustomFunctions())
+    return jmespath.search(expression, input_list, options)
 
 @ex_to_error_result(Error.from_exception)
 def jmespath_filter_handler(input_list, operation: GetFromJsonOperationConfig) -> list:
