@@ -13,7 +13,7 @@ from shared.completedresult import CompletedResult, CompletedWith
 from shared.customtypes import Error
 from shared.pipeline.actionhandler import DataDto
 from shared.utils.asyncresult import async_ex_to_error_result
-from shared.utils.parse import parse_from_dict, parse_positive_int, parse_value
+from shared.utils.parse import PositiveInt, parse_from_dict, parse_value
 from shared.utils.result import to_error_list, to_ok_list
 from shared.utils.string import strip_and_lowercase
 
@@ -28,7 +28,7 @@ class RequestUrlConfig:
         def validate_delay_between_requests() -> Result[int, str]:
             if "delay_between_requests" not in data:
                 return Result.Ok(0)
-            return parse_from_dict(data, "delay_between_requests", parse_positive_int)
+            return parse_from_dict(data, "delay_between_requests", PositiveInt.parse)
         delay_between_requests_res = validate_delay_between_requests()
         errs = to_error_list(delay_between_requests_res)
         match errs:
