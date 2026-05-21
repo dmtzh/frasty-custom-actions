@@ -11,6 +11,7 @@ from actions.getfromjson.handler import GetFromJsonHandler
 from actions.getlinksfromhtml import GetLinksFromHtmlHandler
 from actions.requesturl import RequestUrlHandler
 from actions.sendtoviberchannel.handler import SendToViberChannelHandler
+from actions.waitbeforeprocess import WaitBeforeProcessHandler
 
 from config import action_handler, app, run_action, viber_api_config
 from customactionhandler import create_custom_action_registration_handler
@@ -27,5 +28,6 @@ register_custom_action(FilterJsonResponseHandler())
 register_custom_action(ContentToJsonHandler())
 register_custom_action(GetFromJsonHandler())
 register_custom_action(ApplyRegexHandler())
+register_custom_action(WaitBeforeProcessHandler())
 
 # asyncio.run(app.run())
