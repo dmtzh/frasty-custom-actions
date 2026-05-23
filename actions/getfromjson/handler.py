@@ -63,6 +63,10 @@ class JmespathCustomFunctions(functions.Functions):
     @functions.signature({'types': ['number']})
     def _func_inc(self, step):
         return self.counter(step)
+    
+    @functions.signature({'types': ['number']}, {'types': ['number']})
+    def _func_mod(self, a, b):
+        return a % b
 
 @ex_to_error_result(Error.from_exception)
 def jmespath_query_handler(input_list, operation: GetFromJsonOperationConfig) -> list:
