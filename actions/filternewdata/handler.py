@@ -1,3 +1,4 @@
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Optional
@@ -20,6 +21,8 @@ from .previousdatastore import previous_data_storage
 class CompareTo(StrEnum):
     ALL = "ALL"
     LAST = "LAST"
+    ALL_READONLY = "ALL_READONLY"
+    LAST_READONLY = "LAST_READONLY"
 
     @staticmethod
     def parse(compare_to: str) -> Optional['CompareTo']:
@@ -30,6 +33,10 @@ class CompareTo(StrEnum):
                 return CompareTo.ALL
             case "last":
                 return CompareTo.LAST
+            case "all_readonly":
+                return CompareTo.ALL_READONLY
+            case "last_readonly":
+                return CompareTo.LAST_READONLY
             case _:
                 return None
 
@@ -70,39 +77,123 @@ class FilterNewDataHandler(CustomActionHandler[FilterNewDataConfig, FilterNewDat
         return Result.Ok(dto_list)
     
     async def handle(self, config: FilterNewDataConfig, input: FilterNewDataInput) -> CompletedResult:
-        @async_ex_to_error_result(StorageError.from_exception)
-        @previous_data_storage.with_storage
-        def apply_append_to_all(items: dict[str, FilterNewDataInput] | None, input: FilterNewDataInput):
-            match items:
-                case None:
-                    return (input, {CompareTo.ALL.value: input})
-                case _:
-                    if CompareTo.ALL not in items:
-                        return (input, items | {CompareTo.ALL: input})
-                    new_items = [item for item in input if item not in items[CompareTo.ALL]]
-                    items[CompareTo.ALL] = items[CompareTo.ALL] + new_items
-                    return (new_items, items)
-        @async_ex_to_error_result(StorageError.from_exception)
-        @previous_data_storage.with_storage
-        def apply_replace_last(items: dict[str, FilterNewDataInput] | None, input: FilterNewDataInput):
-            match items:
-                case None:
-                    return (input, {CompareTo.LAST.value: input})
-                case _:
-                    if CompareTo.LAST not in items:
-                        return (input, items | {CompareTo.LAST: input})
-                    new_items = [item for item in input if item not in items[CompareTo.LAST]]
-                    items[CompareTo.LAST] = input
-                    return (new_items, items)
         def ok_to_completed_result(result_data: list[DataDto]):
             return CompletedWith.Data(result_data) if result_data else CompletedWith.NoData()
         def err_to_completed_result(err):
             return CompletedWith.Error(str(err))
         
-        match config.compare_to:
-            case CompareTo.ALL:
-                new_data_res = await apply_append_to_all(config.set_name, input)
-            case CompareTo.LAST:
-                new_data_res = await apply_replace_last(config.set_name, input)
+        # Get the strategy function from the dictionary
+        strategy_func = _COMPARE_TO_STRATEGIES.get(config.compare_to)
+        if strategy_func is None:
+            return CompletedWith.Error(f"Invalid configuration: unknown compare_to mode '{config.compare_to}'")
+
+        # Execute the strategy
+        new_data_res = await strategy_func(config.set_name, input)
         completed_result = new_data_res.map(ok_to_completed_result).default_with(err_to_completed_result)
         return completed_result
+
+# --- Module-level compare to strategy functions ---
+type CompareToStrategyFunc = Callable[[str, FilterNewDataInput], Coroutine[Any, Any, Result[list[DataDto], StorageError]]]
+
+@async_ex_to_error_result(StorageError.from_exception)
+@previous_data_storage.with_storage
+def _apply_append_to_all(items: dict[str, FilterNewDataInput] | None, input: FilterNewDataInput) -> tuple[list[DataDto], dict[str, FilterNewDataInput]]:
+    """
+    Accumulates all unique items seen so far for the given set_name.
+    Returns new unique items and the updated state.
+    """
+    match items:
+        case None:
+            return (input, {CompareTo.ALL.value: input})
+        case _:
+            if CompareTo.ALL.value not in items:
+                return (input, items | {CompareTo.ALL.value: input})
+            
+            history = items[CompareTo.ALL.value]
+            new_items = [item for item in input if item not in history]
+            
+            # Update state with new unique items appended
+            updated_history = history + new_items
+            items[CompareTo.ALL.value] = updated_history
+            
+            return (new_items, items)
+
+
+@async_ex_to_error_result(StorageError.from_exception)
+@previous_data_storage.with_storage
+def _apply_replace_last(items: dict[str, FilterNewDataInput] | None, input: FilterNewDataInput) -> tuple[list[DataDto], dict[str, FilterNewDataInput]]:
+    """
+    Compares input with the last batch of items seen for the given set_name.
+    Updates the state to reflect the current input as the last batch.
+    """
+    match items:
+        case None:
+            return (input, {CompareTo.LAST.value: input})
+        case _:
+            if CompareTo.LAST.value not in items:
+                return (input, items | {CompareTo.LAST.value: input})
+            
+            last_batch = items[CompareTo.LAST.value]
+            new_items = [item for item in input if item not in last_batch]
+            
+            # Update state to current input
+            items[CompareTo.LAST.value] = input
+            
+            return (new_items, items)
+
+
+@async_ex_to_error_result(StorageError.from_exception)
+async def _apply_readonly_filter_all(set_name: str, input: FilterNewDataInput) -> list[DataDto]:
+    """
+    Filters out items already present in the accumulated history (ALL mode) without updating state.
+    Optimized to return input immediately if no history exists.
+    """
+    items = await previous_data_storage.get(set_name)
+    
+    match items:
+        case None:
+            # If no history exists, all input items are considered new
+            return input
+        case _:
+            history = items.get(CompareTo.ALL.value, [])
+            
+            match history:
+                case []:
+                    # If history is empty, all input items are considered new
+                    return input
+                case _:
+                    # Filter out items that are already in history
+                    return [item for item in input if item not in history]
+
+
+@async_ex_to_error_result(StorageError.from_exception)
+async def _apply_readonly_filter_last(set_name: str, input: FilterNewDataInput) -> list[DataDto]:
+    """
+    Filters out items present in the last batch (LAST mode) without updating state.
+    Optimized to return input immediately if no history exists.
+    """
+    items = await previous_data_storage.get(set_name)
+    
+    match items:
+        case None:
+            # If no history exists, all input items are considered new
+            return input
+        case _:
+            history = items.get(CompareTo.LAST.value, [])
+            
+            match history:
+                case []:
+                    # If history is empty, all input items are considered new
+                    return input
+                case _:
+                    # Filter out items that are already in history
+                    return [item for item in input if item not in history]
+
+
+# Dictionary mapping CompareTo modes to their respective handler functions
+_COMPARE_TO_STRATEGIES: dict[CompareTo, CompareToStrategyFunc] = {
+    CompareTo.ALL: _apply_append_to_all,
+    CompareTo.LAST: _apply_replace_last,
+    CompareTo.ALL_READONLY: _apply_readonly_filter_all,
+    CompareTo.LAST_READONLY: _apply_readonly_filter_last,
+}

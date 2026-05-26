@@ -36,5 +36,13 @@ class PreviousDataStore:
         def wrapper(set_name: str, *args: P.args, **kwargs: P.kwargs) -> Coroutine[Any, Any, R]:
             return self._item_action(func)(set_name, *args, **kwargs)
         return wrapper
+    
+    async def get(self, set_name: str):
+        opt_item_with_ver = await self._file_repo_with_ver.get(set_name)
+        match opt_item_with_ver:
+            case _, item:
+                return item
+            case _:
+                return None
 
 previous_data_storage = PreviousDataStore()
