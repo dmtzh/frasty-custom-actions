@@ -10,7 +10,8 @@ from shared.completedresult import CompletedResult, CompletedWith
 from shared.customtypes import Error
 from shared.infrastructure.storage.repository import NotFoundError, StorageError
 from shared.pipeline.actionhandler import DataDto
-from shared.utils.asyncresult import async_ex_to_error_result, async_result, coroutine_result
+from shared.utils.asyncresult import async_result, coroutine_result
+from shared.utils.exceptiondecorators import async_ex_to_error_result
 from shared.utils.parse import parse_from_dict, parse_non_empty_str
 from shared.utils.result import to_error_list
 

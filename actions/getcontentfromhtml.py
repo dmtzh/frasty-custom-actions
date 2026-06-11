@@ -9,7 +9,7 @@ from shared.action import ActionName
 from shared.completedresult import CompletedResult, CompletedWith
 from shared.customtypes import Error
 from shared.pipeline.actionhandler import DataDto
-from shared.utils.asyncresult import ex_to_error_result
+from shared.utils.exceptiondecorators import ex_to_error_result
 from shared.utils.parse import parse_bool_str, parse_from_dict, parse_non_empty_str
 from shared.utils.result import to_error_list, to_ok_list
 

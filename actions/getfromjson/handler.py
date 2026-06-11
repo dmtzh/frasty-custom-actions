@@ -11,7 +11,7 @@ from shared.action import ActionName
 from shared.completedresult import CompletedWith, CompletedResult
 from shared.customtypes import Error
 from shared.pipeline.actionhandler import DataDto
-from shared.utils.asyncresult import ex_to_error_result
+from shared.utils.exceptiondecorators import ex_to_error_result
 
 from customactionhandler import CustomActionHandler
 
