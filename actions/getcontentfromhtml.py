@@ -28,7 +28,13 @@ class GetContentFromHtmlConfigSelector:
         def process_content(self, content) -> list[str]:
             return Selector(text=content).re(self._regex)
 
-    def __init__(self, selector: CssSelector | RegexSelector, output_name: str | None):
+    class XPathSelector:
+        def __init__(self, xpath: str):
+            self._xpath = xpath
+        def process_content(self, content) -> list[str]:
+            return Selector(text=content).xpath(self._xpath).getall()
+
+    def __init__(self, selector: CssSelector | RegexSelector | XPathSelector, output_name: str | None):
         self._selector = selector
         self._output_name = output_name
 
@@ -49,14 +55,18 @@ class GetContentFromHtmlConfigSelector:
             if "regex" not in data:
                 return None
             return parse_from_dict(data, "regex", parse_non_empty_str).map(GetContentFromHtmlConfigSelector.RegexSelector)
+        def validate_xpath_selector() -> Result[GetContentFromHtmlConfigSelector.XPathSelector, str] | None:
+            if "xpath" not in data:
+                return None
+            return parse_from_dict(data, "xpath", parse_non_empty_str).map(GetContentFromHtmlConfigSelector.XPathSelector)
         def validate_output_name() -> Result[str | None, str]:
             if "output_name" not in data:
                 return Result.Ok(None)
             return parse_from_dict(data, "output_name", parse_non_empty_str)
         
-        opt_selector_res = validate_css_selector() or validate_regex_selector()
+        opt_selector_res = validate_css_selector() or validate_regex_selector() or validate_xpath_selector()
         if opt_selector_res is None:
-            return Result.Error("css or regex selector is missing")
+            return Result.Error("css, regex or xpath selector is missing")
         output_name_res = validate_output_name()
         errs = to_error_list(opt_selector_res, output_name_res)
         match errs:
