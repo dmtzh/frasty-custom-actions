@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 import functools
-from typing import Any
+from typing import Any, NamedTuple
 
 from expression import Result
 from parsel import Selector
@@ -14,6 +14,9 @@ from shared.utils.parse import parse_bool_str, parse_from_dict, parse_non_empty_
 from shared.utils.result import to_error_list, to_ok_list
 
 from customactionhandler import CustomActionHandler
+
+class DefaultValueConfig(NamedTuple):
+    value: Any
 
 class GetContentFromHtmlConfigSelector:
     class CssSelector:
@@ -34,16 +37,20 @@ class GetContentFromHtmlConfigSelector:
         def process_content(self, content) -> list[str]:
             return Selector(text=content).xpath(self._xpath).getall()
 
-    def __init__(self, selector: CssSelector | RegexSelector | XPathSelector, output_name: str | None):
+    def __init__(self, selector: CssSelector | RegexSelector | XPathSelector, output_name: str | None, default_value: DefaultValueConfig | None):
         self._selector = selector
         self._output_name = output_name
+        self._default_value = default_value
 
     def process_input(self, input: DataDto) -> list[DataDto]:
         content = input["content"]
         matches = self._selector.process_content(content)
         output_name = self._output_name or "content"
-        output_list = [input | {output_name: match} for match in matches]
-        return output_list
+        match matches:
+            case []:
+                return [input | {output_name: self._default_value.value}] if self._default_value is not None else []
+            case _:
+                return [input | {output_name: match} for match in matches]
     
     @staticmethod
     def from_dict(data: dict) -> Result['GetContentFromHtmlConfigSelector', str]:
@@ -63,15 +70,20 @@ class GetContentFromHtmlConfigSelector:
             if "output_name" not in data:
                 return Result.Ok(None)
             return parse_from_dict(data, "output_name", parse_non_empty_str)
+        def get_default_value():
+            if "default_value" not in data:
+                return None
+            return DefaultValueConfig(data["default_value"])
         
         opt_selector_res = validate_css_selector() or validate_regex_selector() or validate_xpath_selector()
         if opt_selector_res is None:
             return Result.Error("css, regex or xpath selector is missing")
         output_name_res = validate_output_name()
+        opt_default_value = get_default_value()
         errs = to_error_list(opt_selector_res, output_name_res)
         match errs:
             case []:
-                return Result.Ok(GetContentFromHtmlConfigSelector(opt_selector_res.ok, output_name_res.ok))
+                return Result.Ok(GetContentFromHtmlConfigSelector(opt_selector_res.ok, output_name_res.ok, opt_default_value))
             case _:
                 return Result.Error(", ".join(errs))
 
