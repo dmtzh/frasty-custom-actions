@@ -11,7 +11,7 @@ from shared.customtypes import Error
 from shared.pipeline.actionhandler import DataDto
 from shared.utils.exceptiondecorators import ex_to_error_result
 from shared.utils.parse import parse_bool_str, parse_from_dict, parse_non_empty_str
-from shared.utils.result import to_error_list, to_ok_list
+from shared.utils.result import apply, to_error_list, to_ok_list
 
 from customactionhandler import CustomActionHandler
 
@@ -75,17 +75,12 @@ class GetContentFromHtmlConfigSelector:
                 return None
             return DefaultValueConfig(data["default_value"])
         
-        opt_selector_res = validate_css_selector() or validate_regex_selector() or validate_xpath_selector()
-        if opt_selector_res is None:
-            return Result.Error("css, regex or xpath selector is missing")
+        selector_res = validate_css_selector() or validate_regex_selector() or validate_xpath_selector() \
+            or Result[GetContentFromHtmlConfigSelector.CssSelector, str].Error("css, regex or xpath selector is missing")
         output_name_res = validate_output_name()
         opt_default_value = get_default_value()
-        errs = to_error_list(opt_selector_res, output_name_res)
-        match errs:
-            case []:
-                return Result.Ok(GetContentFromHtmlConfigSelector(opt_selector_res.ok, output_name_res.ok, opt_default_value))
-            case _:
-                return Result.Error(", ".join(errs))
+        config_res = apply(lambda selector, output_name: GetContentFromHtmlConfigSelector(selector, output_name, opt_default_value), ", ".join, selector_res, output_name_res)
+        return config_res
 
 @dataclass(frozen=True)
 class GetContentFromHtmlConfig:
