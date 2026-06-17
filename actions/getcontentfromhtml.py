@@ -11,7 +11,7 @@ from shared.customtypes import Error
 from shared.pipeline.actionhandler import DataDto
 from shared.utils.exceptiondecorators import ex_to_error_result
 from shared.utils.parse import parse_bool_str, parse_from_dict, parse_non_empty_str
-from shared.utils.result import apply, to_error_list, to_ok_list
+from shared.utils.result import apply
 
 from customactionhandler import CustomActionHandler
 
@@ -96,14 +96,12 @@ class GetContentFromHtmlConfig:
                 case _:
                     return Result.Error(f"invalid 'selector' value {raw_selector}")    
         def validate_raw_selectors(raw_selectors: list[Any]) -> Result[tuple[GetContentFromHtmlConfigSelector, ...], str]:
-            selectors_res_list = [validate_raw_selector(raw_selector) for raw_selector in raw_selectors]
-            selectors_list = to_ok_list(*selectors_res_list)
-            match selectors_list:
-                case []:
-                    errs = to_error_list(*selectors_res_list)
-                    return Result.Error(", ".join(errs))
-                case _:
-                    return Result.Ok(tuple(selectors_list))
+            initial_res = Result[tuple[GetContentFromHtmlConfigSelector, ...], tuple[str, ...]].Ok(tuple[GetContentFromHtmlConfigSelector, ...]())
+            def process_raw_selector(selectors_res: Result[tuple[GetContentFromHtmlConfigSelector, ...], tuple[str, ...]], raw_selector):
+                selector_res = validate_raw_selector(raw_selector)
+                return apply(lambda selectors, selector: selectors + (selector,), lambda err: err, selectors_res, selector_res)
+            selectors_res = functools.reduce(process_raw_selector, raw_selectors, initial_res)
+            return selectors_res.map_error(", ".join)
         def validate_selectors() -> Result[tuple[GetContentFromHtmlConfigSelector, ...], str]:
             raw_selectors_res = parse_from_dict(data, "selectors", lambda selectors: selectors if isinstance(selectors, list) and selectors else None)
             return raw_selectors_res.bind(validate_raw_selectors)
@@ -114,12 +112,8 @@ class GetContentFromHtmlConfig:
         
         selectors_res = validate_selectors()
         return_empty_result_res = validate_return_empty_result()
-        errs = to_error_list(selectors_res, return_empty_result_res)
-        match errs:
-            case []:
-                return Result.Ok(GetContentFromHtmlConfig(selectors_res.ok, return_empty_result_res.ok))
-            case _:
-                return Result.Error(", ".join(errs))
+        config_res = apply(GetContentFromHtmlConfig, ", ".join, selectors_res, return_empty_result_res)
+        return config_res
 
 type GetContentFromHtmlInput = list[DataDto]
 
