@@ -141,7 +141,8 @@ class GetContentFromHtmlHandler(CustomActionHandler[GetContentFromHtmlConfig, Ge
             return CompletedWith.Data(result_data) if result_data or config.return_empty_result else CompletedWith.NoData()
         def err_to_completed_result(err):
             return CompletedWith.Error(str(err))
-        
-        res = functools.reduce(lambda acc_res, selector: acc_res.bind(lambda acc: get_content_from_input_list(acc, selector)), config.selectors, Result.Ok(input_list))
+
+        initial_res = Result[GetContentFromHtmlInput, Error].Ok(input_list)
+        res = functools.reduce(lambda acc_res, selector: acc_res.bind(lambda acc: get_content_from_input_list(acc, selector)), config.selectors, initial_res)
         return res.map(ok_to_completed_result).default_with(err_to_completed_result)
         
