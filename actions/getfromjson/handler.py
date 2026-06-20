@@ -74,7 +74,11 @@ def jmespath_query_handler(input_list, operation: GetFromJsonOperationConfig) ->
         raise ValueError(f"Invalid 'operation' value {operation}")
     expression = f"[].{operation.data.query}"
     options = jmespath.Options(custom_functions=JmespathCustomFunctions())
-    return jmespath.search(expression, input_list, options)
+    match operation.data.output_name:
+        case None:
+            return jmespath.search(expression, input_list, options)
+        case output_name:
+            return functools.reduce(lambda acc, curr: acc + [curr | {output_name: sr} for sr in jmespath.search(expression, [curr], options)], input_list, [])
 
 @ex_to_error_result(Error.from_exception)
 def jmespath_filter_handler(input_list, operation: GetFromJsonOperationConfig) -> list:
