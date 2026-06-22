@@ -1,11 +1,11 @@
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Optional
+from typing import Any, NamedTuple, Optional
 
 from expression import Result
 
 from shared.utils.parse import parse_bool_str, parse_from_dict, parse_non_empty_str
-from shared.utils.result import to_error_list
+from shared.utils.result import apply, to_error_list
 from shared.utils.string import strip_and_lowercase
 
 class Operation(StrEnum):
@@ -28,12 +28,15 @@ class Parser(StrEnum):
             case _:
                 return None
 
+class DefaultValueConfig(NamedTuple):
+    value: Any
+
 @dataclass(frozen=True)
 class GetFromJsonQuery:
     '''Query operation configuration'''
     query: str
     output_name: str | None
-    default_value: Any | None
+    default_value: DefaultValueConfig | None
 
     @staticmethod
     def from_dict(data: dict) -> Result['GetFromJsonQuery', str]:
@@ -43,15 +46,15 @@ class GetFromJsonQuery:
             if "output_name" not in data:
                 return Result.Ok(None)
             return parse_from_dict(data, "output_name", parse_non_empty_str)
+        def get_default_value():
+            if "default_value" not in data:
+                return None
+            return DefaultValueConfig(data["default_value"])
         query_res = validate_query()
         output_name_res = validate_output_name()
-        default_value = data.get("default_value")
-        errs = to_error_list(query_res, output_name_res)
-        match errs:
-            case []:
-                return Result.Ok(GetFromJsonQuery(query_res.ok, output_name_res.ok, default_value))
-            case _:
-                return Result.Error(", ".join(errs))
+        opt_default_value = get_default_value()
+        config_res = apply(lambda query, output_name: GetFromJsonQuery(query, output_name, opt_default_value), ", ".join, query_res, output_name_res)
+        return config_res
 
 class GetFromJsonFilter(str):
     '''Filter operation configuration'''

@@ -15,7 +15,7 @@ from shared.utils.exceptiondecorators import ex_to_error_result
 
 from customactionhandler import CustomActionHandler
 
-from .config import GetFromJsonFilter, GetFromJsonQuery, Operation, GetFromJsonConfig, GetFromJsonOperationConfig, Parser
+from .config import DefaultValueConfig, GetFromJsonFilter, GetFromJsonQuery, Operation, GetFromJsonConfig, GetFromJsonOperationConfig, Parser
 
 type GetFromJsonInput = list[DataDto]
 type OperationHandlerFunc = Callable[[list, GetFromJsonOperationConfig], Result[list, Error]]
@@ -25,10 +25,10 @@ def jsonpath_ng_query_handler(input_list, operation: GetFromJsonOperationConfig)
     if not isinstance(operation.data, GetFromJsonQuery):
         raise ValueError(f"Invalid 'operation' value {operation}")
     data = operation.data
-    def match_value_to_result(match_value, default_value):
+    def match_value_to_result(match_value, default_value: DefaultValueConfig | None):
         match match_value:
             case None if default_value is not None:
-                return default_value
+                return default_value.value
             case _:
                 return match_value
     def query_get_all(input, data: GetFromJsonQuery):
