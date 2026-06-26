@@ -95,12 +95,9 @@ class GetFromJsonOperationConfig:
                     return GetFromJsonFilter.from_dict(data).map(lambda data: GetFromJsonOperationConfig(operation, parser, data))
         operation_res = parse_operation()
         parser_res = parse_parser()
-        errs = to_error_list(operation_res, parser_res)
-        match errs:
-            case []:
-                return validate_config(operation_res.ok, parser_res.ok)
-            case _:
-                return Result.Error(", ".join(errs))
+        op_with_parser_res = apply(lambda operation, parser: (operation, parser), ", ".join, operation_res, parser_res)
+        config_res = op_with_parser_res.bind(lambda op_with_parser: validate_config(*op_with_parser))
+        return config_res
 
 @dataclass(frozen=True)
 class GetFromJsonConfig:
