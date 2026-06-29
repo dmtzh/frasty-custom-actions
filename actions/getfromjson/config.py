@@ -1,11 +1,12 @@
 from dataclasses import dataclass
 from enum import StrEnum
+import functools
 from typing import Any, NamedTuple, Optional
 
 from expression import Result
 
 from shared.utils.parse import parse_bool_str, parse_from_dict, parse_non_empty_str
-from shared.utils.result import apply, to_error_list
+from shared.utils.result import apply
 from shared.utils.string import strip_and_lowercase
 
 class Operation(StrEnum):
@@ -113,32 +114,21 @@ class GetFromJsonConfig:
                 case _:
                     return Result.Error(f"invalid 'operation' value {raw_operation}")
         def validate_raw_operations(raw_operations: list[Any]) -> Result[tuple[GetFromJsonOperationConfig, ...], str]:
-            operations_res_list = [validate_raw_operation(raw_operation) for raw_operation in raw_operations]
-            errs = to_error_list(*operations_res_list)
-            match errs:
-                case []:
-                    operations_tuple = tuple(operation_res.ok for operation_res in operations_res_list)
-                    return Result.Ok(operations_tuple)
-                case _:
-                    return Result.Error(", ".join(errs))
+            initial_value = Result[tuple[GetFromJsonOperationConfig, ...], tuple[str, ...]].Ok(tuple[GetFromJsonOperationConfig, ...]())
+            def reduce_func(ops_res: Result[tuple[GetFromJsonOperationConfig, ...], tuple[str, ...]], raw_op: Any):
+                operation_res = validate_raw_operation(raw_op)
+                return apply(lambda ops, operation: ops + (operation,), lambda errs: errs, ops_res, operation_res)
+            operations_res = functools.reduce(reduce_func, raw_operations, initial_value)
+            return operations_res.map_error(", ".join)
         def validate_operations() -> Result[tuple[GetFromJsonOperationConfig, ...], str]:
             raw_operations_res = parse_from_dict(data, "operations", lambda operations: operations if isinstance(operations, list) and operations else None)
             operations_res = raw_operations_res.bind(validate_raw_operations)
-            errs = to_error_list(operations_res)
-            match errs:
-                case []:
-                    return Result.Ok(operations_res.ok)
-                case _:
-                    return Result.Error(", ".join(errs))
+            return operations_res
         def validate_return_empty_result() -> Result[bool, str]:
             if "return_empty_result" not in data:
                 return Result.Ok(False)
             return parse_from_dict(data, "return_empty_result", parse_bool_str)
         operations_res = validate_operations()
         return_empty_result_res = validate_return_empty_result()
-        errs = to_error_list(operations_res, return_empty_result_res)
-        match errs:
-            case []:
-                return Result.Ok(GetFromJsonConfig(operations_res.ok, return_empty_result_res.ok))
-            case _:
-                return Result.Error(", ".join(errs))
+        config_res = apply(GetFromJsonConfig, ", ".join, operations_res, return_empty_result_res)
+        return config_res
