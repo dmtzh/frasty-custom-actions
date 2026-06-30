@@ -126,5 +126,6 @@ class GetFromJsonHandler(CustomActionHandler[GetFromJsonConfig, GetFromJsonInput
         def err_to_completed_result(err):
             return CompletedWith.Error(str(err))
 
-        res = functools.reduce(lambda acc_res, operation: acc_res.bind(lambda acc: dispatch_to_operation_handler(acc, operation)), config.operations, Result.Ok(input_list))
+        initial_res = Result[GetFromJsonInput, Error].Ok(input_list)
+        res = functools.reduce(lambda acc_res, operation: acc_res.bind(lambda acc: dispatch_to_operation_handler(acc, operation)), config.operations, initial_res)
         return res.map(ok_to_completed_result).default_with(err_to_completed_result)
