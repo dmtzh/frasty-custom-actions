@@ -119,11 +119,11 @@ class NormalizeTextHandler(CustomActionHandler[NormalizeTextConfig, NormalizeTex
         return Result.Ok(dto_list)
     
     async def handle(self, config: NormalizeTextConfig, input: NormalizeTextInput) -> CompletedResult:
-        initial_res = Result[NormalizeTextInput, tuple[str, ...]].Ok([])
-        def reduce_func(acc_output_res: Result[NormalizeTextInput, tuple[str, ...]], input: DataDto):
-            input_res = _normalize_text(input, config.field_name).map_error(lambda err: err.message)
+        initial_res = Result[NormalizeTextInput, tuple[Error, ...]].Ok(list[DataDto]())
+        def reduce_func(acc_output_res: Result[NormalizeTextInput, tuple[Error, ...]], input: DataDto):
+            input_res = _normalize_text(input, config.field_name)
             return apply(lambda acc, def_with_id: [*acc, def_with_id], lambda err: err, acc_output_res, input_res)
-        output_res = functools.reduce(reduce_func, input, initial_res)
+        res = functools.reduce(reduce_func, input, initial_res)
         def err_to_completed_result(err):
             return CompletedWith.Error(str(err))
-        return output_res.map(CompletedWith.Data).default_with(err_to_completed_result)
+        return res.map(CompletedWith.Data).default_with(err_to_completed_result)
