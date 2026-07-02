@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, TypeVar, override
 
 from expression import Result
 
@@ -10,15 +10,16 @@ from shared.pipeline.actionhandler import ActionData, ActionHandlerFactory, Asyn
 TCfg = TypeVar("TCfg")
 D = TypeVar("D")
 
-class CustomActionHandler(ABC, Generic[TCfg, D]):
+class RegistrableCustomActionHandler(ABC):
+    @abstractmethod
+    def register(self, run_action: RunAsyncAction, action_handler: AsyncActionHandler) -> Any:
+        raise NotImplementedError()
+
+class CustomActionHandler(RegistrableCustomActionHandler, Generic[TCfg, D]):
     @property
     @abstractmethod
     def action_name(self) -> ActionName:
         raise NotImplementedError()
-    
-    @property
-    def action(self) -> Action:
-        return Action(self.action_name, ActionType.CUSTOM)
     
     @abstractmethod
     def validate_config(self, raw_config: dict[str, Any]) -> Result[TCfg, Any]:
@@ -31,17 +32,24 @@ class CustomActionHandler(ABC, Generic[TCfg, D]):
     @abstractmethod
     async def handle(self, config: TCfg, input: D) -> CompletedResult:
         raise NotImplementedError()
-    
-    @property
-    def handle_wrapper(self):
-        def wrapper(data: ActionData[TCfg, D]):
+   
+    @override
+    def register(self, run_action: RunAsyncAction, action_handler: AsyncActionHandler) -> Any:
+        def handle_wrapper(data: ActionData[TCfg, D]):
             return self.handle(data.config, data.input)
-        wrapper.__name__ = f"handle_{self.action.name}"
-        return wrapper
+        action = Action(self.action_name, ActionType.CUSTOM)
+        handle_wrapper.__name__ = f"handle_{action.name}"
+        return ActionHandlerFactory(run_action, action_handler).create(
+            action,
+            self.validate_config,
+            self.validate_input
+        )(handle_wrapper)
 
-class CustomActionHandlerWithoutConfig(CustomActionHandler[None, D]):
-    def validate_config(self, raw_config: dict[str, Any]) -> Result[None, Any]:
-        return Result.Ok(None)
+class CustomActionHandlerWithoutConfig(RegistrableCustomActionHandler, Generic[D]):
+    @property
+    @abstractmethod
+    def action_name(self) -> ActionName:
+        raise NotImplementedError()
     
     @abstractmethod
     def validate_input(self, dto_list: list[DataDto]) -> Result[D, Any]:
@@ -51,25 +59,18 @@ class CustomActionHandlerWithoutConfig(CustomActionHandler[None, D]):
     async def handle(self, input: D) -> CompletedResult:
         raise NotImplementedError()
     
-    @property
-    def handle_wrapper(self):
-        def wrapper(data: ActionData[None, D]):
+    @override
+    def register(self, run_action: RunAsyncAction, action_handler: AsyncActionHandler) -> Any:
+        def handle_wrapper(data: ActionData[None, D]):
             return self.handle(data.input)
-        wrapper.__name__ = f"handle_{self.action.name}"
-        return wrapper
+        action = Action(self.action_name, ActionType.CUSTOM)
+        handle_wrapper.__name__ = f"handle_{action.name}"
+        return ActionHandlerFactory(run_action, action_handler).create_without_config(
+            action,
+            self.validate_input
+        )(handle_wrapper)
 
 def create_custom_action_registration_handler(run_action: RunAsyncAction, action_handler: AsyncActionHandler):
-    def register_custom_action[TCfg, D](handler: CustomActionHandler[TCfg, D]):
-        match handler:
-            case CustomActionHandlerWithoutConfig():
-                return ActionHandlerFactory(run_action, action_handler).create_without_config(
-                    handler.action,
-                    handler.validate_input
-                )(handler.handle_wrapper)
-            case CustomActionHandler():
-                return ActionHandlerFactory(run_action, action_handler).create(
-                    handler.action,
-                    handler.validate_config,
-                    handler.validate_input
-                )(handler.handle_wrapper)
+    def register_custom_action(custom_action: RegistrableCustomActionHandler):
+        return custom_action.register(run_action, action_handler)
     return register_custom_action
