@@ -10,6 +10,7 @@ from actions.getcontentfromhtml import GetContentFromHtmlHandler
 from actions.getfromjson.handler import GetFromJsonHandler
 from actions.normalizetext import NormalizeTextHandler
 from actions.getlinksfromhtml import GetLinksFromHtmlHandler
+from actions.rendertemplate import RenderTemplateHandler
 from actions.requesturl import RequestUrlHandler
 from actions.sendtoviberchannel.handler import SendToViberChannelHandler
 from actions.waitbeforeprocess import WaitBeforeProcessHandler
@@ -31,5 +32,6 @@ register_custom_action(GetFromJsonHandler())
 register_custom_action(ApplyRegexHandler())
 register_custom_action(NormalizeTextHandler())
 register_custom_action(WaitBeforeProcessHandler())
+register_custom_action(RenderTemplateHandler())
 
 # asyncio.run(app.run())
