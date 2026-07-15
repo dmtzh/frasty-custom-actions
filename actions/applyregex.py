@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-import functools
+from itertools import chain
 import re
 from typing import Any
 
@@ -11,14 +11,27 @@ from shared.customtypes import Error
 from shared.pipeline.actionhandler import DataDto
 from shared.utils.exceptiondecorators import ex_to_error_result
 from shared.utils.parse import parse_bool_str, parse_from_dict, parse_value, NonEmptyStr
-from shared.utils.result import apply3
+from shared.utils.result import apply4
 
 from customactionhandler import CustomActionHandler
+
+@dataclass(frozen=True)
+class DefaultValue:
+    """
+    Sentinel wrapper that distinguishes "default value is not specified" (None)
+    from "default value is explicitly set to None" (DefaultValue(None)).
+
+    This is a local copy of the pattern used in FetchDataConfig.
+    The value is NOT cloned when substituted into DataDto — mutable values
+    (dict, list) will be shared by reference across all DataDto elements.
+    """
+    value: Any
 
 @dataclass(frozen=True)
 class ApplyRegexConfig:
     field_name: NonEmptyStr
     expression: re.Pattern[str]
+    default_value: DefaultValue | None
     return_empty_result: bool
 
     @staticmethod
@@ -34,6 +47,13 @@ class ApplyRegexConfig:
             raw_expression_res = parse_from_dict(data, "expression", NonEmptyStr.parse)
             expression_res = raw_expression_res.bind(lambda raw_expr: parse_value(raw_expr, "expression", compile_regex))
             return expression_res
+        # --- Optional: default_value (sentinel via DefaultValue | None) ---
+        # Key absence -> None (field will NOT be added on empty match).
+        # Key presence (even with null value) -> DefaultValue(value).
+        def get_default_value() -> DefaultValue | None:
+            if "default_value" not in data:
+                return None
+            return DefaultValue(data["default_value"])
         def validate_return_empty_result() -> Result[bool, str]:
             if "return_empty_result" not in data:
                 return Result.Ok(False)
@@ -41,10 +61,11 @@ class ApplyRegexConfig:
 
         field_name_res = validate_field_name()
         expression_res = validate_expression()
+        opt_default_value_res: Result[DefaultValue | None, str] = Result.Ok(get_default_value())
         return_empty_result_res = validate_return_empty_result()
 
         # Combine all results
-        return apply3(ApplyRegexConfig, ", ".join, field_name_res, expression_res, return_empty_result_res)
+        return apply4(ApplyRegexConfig, ", ".join, field_name_res, expression_res, opt_default_value_res, return_empty_result_res)
 
 type ApplyRegexInput = list[DataDto]
 
@@ -65,11 +86,20 @@ class ApplyRegexHandler(CustomActionHandler[ApplyRegexConfig, ApplyRegexInput]):
                 return [input]
             text = input[config.field_name]
             matches = [match.group(0) for match in re.finditer(config.expression, text)]
-            output_list = [input | {config.field_name: match} for match in matches]
-            return output_list
+            match matches:
+                case [] if config.default_value is not None:
+                    # No matches + default_value is set -> substitute the default value.
+                    return [input | {config.field_name: config.default_value.value}]
+                case []:
+                    # No matches + no default_value -> empty list (element dropped).
+                    return []
+                case _:
+                    # Matches found -> one DataDto per match (default_value is ignored).
+                    return [input | {config.field_name: match} for match in matches]
         @ex_to_error_result(Error.from_exception)
         def apply_to_input_list() -> list[DataDto]:
-            return functools.reduce(lambda acc, curr: acc + apply_to_input_field(curr), input_list, [])
+            flat_mapped_iter = chain.from_iterable(map(apply_to_input_field, input_list))
+            return list(flat_mapped_iter)
         def ok_to_completed_result(result_data: list[DataDto]):
             return CompletedWith.Data(result_data) if result_data or config.return_empty_result else CompletedWith.NoData()
         def err_to_completed_result(err):
