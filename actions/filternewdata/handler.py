@@ -14,9 +14,8 @@ from shared.utils.parse import parse_from_dict, parse_non_empty_str
 from shared.utils.result import to_error_list
 from shared.utils.string import strip_and_lowercase
 
+from config import previous_data_storage
 from customactionhandler import CustomActionHandler
-
-from .previousdatastore import previous_data_storage
 
 class CompareTo(StrEnum):
     ALL = "ALL"

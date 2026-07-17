@@ -7,8 +7,6 @@ from shared.infrastructure.storage.filewithversionlimited import FileWithVersion
 from shared.infrastructure.storage.repositoryitemaction import ItemActionInAsyncRepositoryWithVersion
 from shared.pipeline.actionhandler import DataDto
 
-import config
-
 type ItemType = dict[str, list[DataDto]]
 type DtoItemType = dict[str, list[DataDto]]
 
@@ -18,8 +16,8 @@ P = ParamSpec("P")
 R = TypeVar("R")
 
 class PreviousDataStore:
-    def __init__(self):
-        folder_path = os.path.join(config.STORAGE_ROOT_FOLDER, "FilterNewDataStorage")
+    def __init__(self, root_folder: str):
+        folder_path = os.path.join(root_folder, "FilterNewDataStorage")
         file_repo_with_ver = FileWithVersionLimited[str, ItemType, DtoItemType](
             "PreviousData",
             _id,
@@ -44,5 +42,3 @@ class PreviousDataStore:
                 return item
             case _:
                 return None
-
-previous_data_storage = PreviousDataStore()
