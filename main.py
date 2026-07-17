@@ -15,7 +15,7 @@ from actions.requesturl import RequestUrlHandler
 from actions.sendtoviberchannel.handler import SendToViberChannelHandler
 from actions.waitbeforeprocess import WaitBeforeProcessHandler
 
-from config import action_handler, app, run_action, viber_api_config
+from config import action_handler, app, previous_data_storage, run_action, viber_api_config
 from customactionhandler import create_custom_action_registration_handler
 
 register_custom_action = create_custom_action_registration_handler(run_action, action_handler)
@@ -24,7 +24,7 @@ register_custom_action(FilterSuccessResponseHandler())
 register_custom_action(FilterHtmlResponseHandler())
 register_custom_action(GetContentFromHtmlHandler())
 register_custom_action(GetLinksFromHtmlHandler())
-register_custom_action(FilterNewDataHandler())
+register_custom_action(FilterNewDataHandler(previous_data_storage))
 register_custom_action(SendToViberChannelHandler(viber_api_config))
 register_custom_action(FilterJsonResponseHandler())
 register_custom_action(ContentToJsonHandler())
