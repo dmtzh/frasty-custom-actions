@@ -123,8 +123,9 @@ class RequestUrlInput:
     http_method: HttpMethod
     headers: dict[str, str] | None
     json: dict[str, Any] | None
+    data: DataDto
     @staticmethod
-    def from_dict(data: dict[str, Any]) -> Result['RequestUrlInput', str]:
+    def from_dict(data: DataDto) -> Result['RequestUrlInput', str]:
         def validate_headers() -> Result[dict[str, str] | None, str]:
             @effect.result[dict[str, str] | None, str]()
             def parse_headers():
@@ -153,7 +154,7 @@ class RequestUrlInput:
         errs = to_error_list(url_res, http_method_res, headers_res, json_res)
         match errs:
             case []:
-                return Result.Ok(RequestUrlInput(url_res.ok, http_method_res.ok, headers_res.ok, json_res.ok))
+                return Result.Ok(RequestUrlInput(url_res.ok, http_method_res.ok, headers_res.ok, json_res.ok, data))
             case errs:
                 return Result.Error(", ".join(errs))
 
@@ -195,7 +196,7 @@ class RequestUrlHandler(CustomActionHandler[RequestUrlConfig, list[RequestUrlInp
                         "content_type": response.content_type,
                         "content": content
                     }
-                    response_data_dict = {
+                    response_data_dict = input.data | {
                         "req. headers": dict(response.request_info.headers),
                         "resp. headers": dict(response.headers)
                     } | response_data_dict
