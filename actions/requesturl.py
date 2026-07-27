@@ -14,7 +14,7 @@ from shared.customtypes import Error
 from shared.pipeline.actionhandler import DataDto
 from shared.utils.exceptiondecorators import async_ex_to_error_result
 from shared.utils.parse import PositiveInt, parse_from_dict, parse_value
-from shared.utils.result import to_error_list, to_ok_list
+from shared.utils.result import apply4, to_ok_list, sequence_accumulating, traverse_accumulating_with_index
 from shared.utils.string import strip_and_lowercase
 
 from customactionhandler import CustomActionHandler
@@ -30,12 +30,9 @@ class RequestUrlConfig:
                 return Result.Ok(0)
             return parse_from_dict(data, "delay_between_requests", PositiveInt.parse)
         delay_between_requests_res = validate_delay_between_requests()
-        errs = to_error_list(delay_between_requests_res)
-        match errs:
-            case []:
-                return Result.Ok(RequestUrlConfig(delay_between_requests_res.ok))
-            case _:
-                return Result.Error(", ".join(errs))
+
+        config_res = delay_between_requests_res.map(RequestUrlConfig)
+        return config_res
 
 class Url:
     """
@@ -151,12 +148,12 @@ class RequestUrlInput:
         http_method_res = parse_from_dict(data, "http_method", HttpMethod.parse)
         headers_res = validate_headers()
         json_res = validate_json()
-        errs = to_error_list(url_res, http_method_res, headers_res, json_res)
-        match errs:
-            case []:
-                return Result.Ok(RequestUrlInput(url_res.ok, http_method_res.ok, headers_res.ok, json_res.ok, data))
-            case errs:
-                return Result.Error(", ".join(errs))
+
+        config_res = apply4(
+            lambda url, http_method, headers, json: RequestUrlInput(url, http_method, headers, json, data),
+            ", ".join, url_res, http_method_res, headers_res, json_res
+        )
+        return config_res
 
 class RequestUrlUnexpectedError(Error):
     '''Unexpected error when request url'''
@@ -172,15 +169,16 @@ class RequestUrlHandler(CustomActionHandler[RequestUrlConfig, list[RequestUrlInp
     def validate_input(self, _: RequestUrlConfig, dto_list: list[DataDto]) -> Result[list[RequestUrlInput], Any]:
         if not dto_list:
             return Result.Error("input data is missing")
-        data_res_list = [RequestUrlInput.from_dict(data) for data in dto_list]
-        data_list = to_ok_list(*data_res_list)
-        match data_list:
-            case []:
-                errs = to_error_list(*data_res_list)
-                return Result.Error(", ".join(errs))
-            case _:
-                return Result.Ok(data_list)
-    
+
+        def validate_input_item(idx: int, data: DataDto):
+            input_item_res = RequestUrlInput.from_dict(data)\
+                .map_error(lambda err: f"input_data[{idx}]: {err}")
+            return input_item_res
+
+        input_res = traverse_accumulating_with_index(dto_list, validate_input_item)\
+            .map_error(", ".join)
+        return input_res
+
     async def handle(self, config: RequestUrlConfig, input_list: list[RequestUrlInput]) -> CompletedResult:
         @async_ex_to_error_result(RequestUrlUnexpectedError.from_exception)
         async def request_data(session: aiohttp.ClientSession, delay_before_request: int, timeout: aiohttp.ClientTimeout, input: RequestUrlInput) -> Result[dict[str, Any], RequestUrlUnexpectedError]:
@@ -205,6 +203,10 @@ class RequestUrlHandler(CustomActionHandler[RequestUrlConfig, list[RequestUrlInp
                 return Result.Error(RequestUrlUnexpectedError(f"Request timeout {timeout.total} seconds"))
             except aiohttp.client_exceptions.ClientConnectorError:
                 return Result.Error(RequestUrlUnexpectedError(f"Cannot connect to {input.url} ({input.http_method})"))
+        def ok_to_completed_result(result_list: list[DataDto]) -> CompletedResult:
+            return CompletedWith.Data(result_list)
+        def err_to_completed_result(err: Any) -> CompletedResult:
+            return CompletedWith.Error(str(err))
         
         tasks: list[Coroutine[Any, Any, Result[dict[str, Any], RequestUrlUnexpectedError]]] = []
         async with aiohttp.ClientSession() as session:
@@ -214,11 +216,16 @@ class RequestUrlHandler(CustomActionHandler[RequestUrlConfig, list[RequestUrlInp
                 task = request_data(session, delay_before_request, timeout_15_seconds, input)
                 tasks.append(task)
                 delay_before_request += config.delay_between_requests
-            results = await asyncio.gather(*tasks)
-            success_results = to_ok_list(*results)
-            match success_results:
+            responses_res = await asyncio.gather(*tasks)
+            success_responses = to_ok_list(*responses_res)
+            match success_responses:
                 case []:
-                    errs = map(str, to_error_list(*results))
-                    return CompletedWith.Error(", ".join(errs))
+                    responses_res_iter = (
+                        response_res.map_error(lambda err: RequestUrlUnexpectedError(f"[{idx}]: {err.message}"))
+                        for idx, response_res
+                        in enumerate(responses_res)
+                    )
+                    res = sequence_accumulating(responses_res_iter)
+                    return res.map(ok_to_completed_result).default_with(err_to_completed_result)
                 case _:
-                    return CompletedWith.Data(success_results)
+                    return ok_to_completed_result(success_responses)
