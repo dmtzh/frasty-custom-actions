@@ -5,9 +5,9 @@ from typing import Any
 
 from expression import Result, effect
 
+from infrastructure.persistence.filesystem.filewithversion import FileWithVersion
 from shared.customtypes import IdValue
 from shared.infrastructure.serialization.json import JsonSerializer
-from shared.infrastructure.storage.filewithversion import FileWithVersion
 from shared.utils.parse import parse_from_dict, parse_non_empty_str
 
 import config
