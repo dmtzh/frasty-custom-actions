@@ -15,10 +15,11 @@ from shared.utils.exceptiondecorators import async_ex_to_error_result
 from shared.utils.parse import parse_from_dict, parse_non_empty_str
 from shared.utils.result import to_error_list
 
+from config import viber_channels_storage
 from customactionhandler import CustomActionHandler
 
 from .config import ViberApiConfig
-from .viberchannelsstore import ViberChannel, ViberChannelIdValue, viber_channels_storage
+from .viberchannelsstore import ViberChannel, ViberChannelIdValue
 
 @dataclass(frozen=True)
 class SendToViberChannelConfig:

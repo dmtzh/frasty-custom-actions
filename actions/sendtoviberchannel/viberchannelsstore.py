@@ -10,8 +10,6 @@ from shared.customtypes import IdValue
 from shared.infrastructure.serialization.json import JsonSerializer
 from shared.utils.parse import parse_from_dict, parse_non_empty_str
 
-import config
-
 type ItemType = ViberChannel
 type DtoItemType = dict[str, str]
 
@@ -39,8 +37,8 @@ class ViberChannel:
         return ViberChannel(auth_token, from_)
 
 class ViberChannelsStore:
-    def __init__(self):
-        folder_path = os.path.join(config.STORAGE_ROOT_FOLDER, "SendToViberChannelStorage")
+    def __init__(self, root_folder: str):
+        folder_path = os.path.join(root_folder, "SendToViberChannelStorage")
         file_repo_with_ver = FileWithVersion[ViberChannelIdValue, ItemType, DtoItemType](
             "ViberChannels",
             ViberChannel.to_dict,
@@ -58,5 +56,3 @@ class ViberChannelsStore:
                 return item
             case _:
                 return None
-
-viber_channels_storage = ViberChannelsStore()

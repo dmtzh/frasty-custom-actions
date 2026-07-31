@@ -2,6 +2,7 @@ import os
 
 from actions.filternewdata.previousdatastore import PreviousDataStore
 from actions.sendtoviberchannel.config import ViberApiConfig
+from actions.sendtoviberchannel.viberchannelsstore import ViberChannelsStore
 from infrastructure.rabbitmq import config
 
 STORAGE_ROOT_FOLDER = os.environ['STORAGE_ROOT_FOLDER']
@@ -15,5 +16,6 @@ action_handler = config.action_handler
 run_action = config.run_action
 
 previous_data_storage = PreviousDataStore(STORAGE_ROOT_FOLDER)
+viber_channels_storage = ViberChannelsStore(STORAGE_ROOT_FOLDER)
 
 app = config.create_faststream_app()
