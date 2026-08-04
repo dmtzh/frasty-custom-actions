@@ -1,5 +1,6 @@
 import asyncio
 from dataclasses import dataclass
+import functools
 from typing import Any
 
 import aiohttp
@@ -12,8 +13,8 @@ from shared.infrastructure.storage.repository import NotFoundError, StorageError
 from shared.pipeline.actionhandler import DataDto
 from shared.utils.asyncresult import async_result, coroutine_result
 from shared.utils.exceptiondecorators import async_ex_to_error_result
-from shared.utils.parse import parse_from_dict, parse_non_empty_str
-from shared.utils.result import to_error_list
+from shared.utils.parse import parse_from_dict, NonEmptyStr
+from shared.utils.result import apply3, traverse_accumulating_with_index
 
 from customactionhandler import CustomActionHandler
 
@@ -23,22 +24,27 @@ from .viberchannelsstore import ViberChannel, ViberChannelIdValue, ViberChannels
 @dataclass(frozen=True)
 class SendToViberChannelConfig:
     channel_id: ViberChannelIdValue
-    title: str
+    title: NonEmptyStr
+    content_field_name: NonEmptyStr | None
 
     @staticmethod
     def from_dict(data: dict[str, Any]) -> Result['SendToViberChannelConfig', str]:
         def validate_channel_id() -> Result[ViberChannelIdValue, str]:
             return parse_from_dict(data, "channel_id", ViberChannelIdValue.from_value_with_checksum)
-        def validate_title() -> Result[str, str]:
-            return parse_from_dict(data, "title", parse_non_empty_str)
+        
+        def validate_title() -> Result[NonEmptyStr, str]:
+            return parse_from_dict(data, "title", NonEmptyStr.parse)
+            
+        def validate_content_field_name() -> Result[NonEmptyStr | None, str]:
+            if "content_field_name" not in data:
+                return Result.Ok(None)
+            return parse_from_dict(data, "content_field_name", NonEmptyStr.parse)
+
         channel_id_res = validate_channel_id()
         title_res = validate_title()
-        errs = to_error_list(channel_id_res, title_res)
-        match errs:
-            case []:
-                return Result.Ok(SendToViberChannelConfig(channel_id_res.ok, title_res.ok))
-            case _:
-                return Result.Error(", ".join(errs))
+        content_field_name_res = validate_content_field_name()
+        config_res = apply3(SendToViberChannelConfig, ", ".join, channel_id_res, title_res, content_field_name_res)
+        return config_res
 
 type SendToViberChannelInput = list[DataDto]
 
@@ -94,7 +100,9 @@ async def _send_to_viber_channel(viber_api_config: ViberApiConfig, channel: Vibe
     async with aiohttp.ClientSession() as session:
         timeout_15_seconds = aiohttp.ClientTimeout(total=15)
         for msg in input:
-            viber_text_msg = ViberTextMessage.from_dict(config.title, msg)
+            # Extract the target dictionary based on configuration
+            target_dict = msg[config.content_field_name] if config.content_field_name is not None else msg
+            viber_text_msg = ViberTextMessage.from_dict(config.title, target_dict)
             task = send_text_message(session, timeout_15_seconds, viber_text_msg)
             tasks.append(task)
         results = await asyncio.gather(*tasks)
@@ -132,11 +140,31 @@ class SendToViberChannelHandler(CustomActionHandler[SendToViberChannelConfig, Se
     
     def validate_config(self, raw_config: dict[str, Any]) -> Result[SendToViberChannelConfig, Any]:
         return SendToViberChannelConfig.from_dict(raw_config)
-    
-    def validate_input(self, _: SendToViberChannelConfig, dto_list: list[DataDto]) -> Result[SendToViberChannelInput, Any]:
+
+    def validate_input(self, config: SendToViberChannelConfig, dto_list: list[DataDto]) -> Result[SendToViberChannelInput, Any]:
         if not dto_list:
             return Result.Error("input data is missing")
-        return Result.Ok(dto_list)
+
+        def validate_content_field(content_field_name: NonEmptyStr, dto: DataDto) -> Result[dict, str]:
+            if content_field_name not in dto:
+                return Result.Error(f"{content_field_name} key is missing")
+            val = dto[content_field_name]
+            if not isinstance(val, dict):
+                return Result.Error(f"{content_field_name} expected dict, got {type(val).__name__}")
+            return Result.Ok(val)
+        def validate_input_item(content_field_name: NonEmptyStr, idx: int, dto: DataDto):
+            content_field_res = validate_content_field(content_field_name, dto)
+            input_item_res = content_field_res\
+                .map(lambda _: dto)\
+                .map_error(lambda err: f"input_data[{idx}].{err}")
+            return input_item_res
+
+        match config.content_field_name:
+            case None:
+                return Result.Ok(dto_list)
+            case content_field_name:
+                input_res = traverse_accumulating_with_index(dto_list, functools.partial(validate_input_item, content_field_name))
+                return input_res
     
     async def handle(self, config: SendToViberChannelConfig, input: SendToViberChannelInput) -> CompletedResult:
         def ok_to_completed_result(result_data: list[DataDto]):
