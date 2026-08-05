@@ -1,4 +1,6 @@
 from abc import ABC, abstractmethod
+from collections.abc import Callable, Coroutine
+from dataclasses import dataclass
 from typing import Any, Generic, TypeVar, override
 
 from expression import Result
@@ -10,12 +12,52 @@ from shared.pipeline.actionhandler import ActionData, ActionHandlerFactory, Asyn
 TCfg = TypeVar("TCfg")
 D = TypeVar("D")
 
-class RegistrableCustomActionHandler(ABC):
+def named_action_handler(action_name: ActionName):
+    def decorator(handler: Callable[[ActionData[TCfg, D]], Coroutine[Any, Any, CompletedResult | None]]):
+        handler.__name__ = f"handle_{action_name}"
+        return handler
+    return decorator
+
+@dataclass(frozen=True)
+class ActionHandlerFactoryInput(Generic[TCfg, D]):
+    action: Action
+    config_validator: Callable[[dict[str, Any]], Result[TCfg, Any]]
+    input_validator: Callable[[TCfg, list[DataDto]], Result[D, Any]]
+    handler: Callable[[ActionData[TCfg, D]], Coroutine[Any, Any, CompletedResult | None]]
+
+
+class RegistrableCustomActionHandler(ABC, Generic[TCfg, D]):
+    """
+    Base class for all custom action handlers that can be registered
+    with the ActionHandlerFactory.
+
+    This class defines the registration contract
+    
+    """
+
+    # ------------------------------------------------------------------
+    # Abstract contract
+    # ------------------------------------------------------------------
+
     @abstractmethod
-    def register(self, run_action: RunAsyncAction, action_handler: AsyncActionHandler) -> Any:
+    def to_action_handler_factory_input(self) -> ActionHandlerFactoryInput[TCfg, D]:
         raise NotImplementedError()
 
-class CustomActionHandler(RegistrableCustomActionHandler, Generic[TCfg, D]):
+
+# ======================================================================
+# CustomActionHandler — standard handler with configuration
+# ======================================================================
+
+class CustomActionHandler(RegistrableCustomActionHandler[TCfg, D]):
+    """
+    Standard custom action handler with configuration.
+
+    Subclasses must implement:
+      - ``action_name`` (property)
+      - ``validate_config``
+      - ``validate_input``
+      - ``handle``
+    """
     @property
     @abstractmethod
     def action_name(self) -> ActionName:
@@ -32,20 +74,34 @@ class CustomActionHandler(RegistrableCustomActionHandler, Generic[TCfg, D]):
     @abstractmethod
     async def handle(self, config: TCfg, input: D) -> CompletedResult:
         raise NotImplementedError()
-   
-    @override
-    def register(self, run_action: RunAsyncAction, action_handler: AsyncActionHandler) -> Any:
-        def handle_wrapper(data: ActionData[TCfg, D]):
-            return self.handle(data.config, data.input)
-        action = Action(self.action_name, ActionType.CUSTOM)
-        handle_wrapper.__name__ = f"handle_{action.name}"
-        return ActionHandlerFactory(run_action, action_handler).create(
-            action,
-            self.validate_config,
-            self.validate_input
-        )(handle_wrapper)
 
-class CustomActionHandlerWithoutConfig(RegistrableCustomActionHandler, Generic[D]):
+    @override
+    def to_action_handler_factory_input(self) -> ActionHandlerFactoryInput[TCfg, D]:
+        @named_action_handler(self.action_name)
+        def handle_wrapper(data: ActionData[TCfg, D]):
+            """Adapts to the ``handle(config, input)`` signature."""
+            return self.handle(data.config, data.input)
+        return ActionHandlerFactoryInput(
+            action=Action(self.action_name, ActionType.CUSTOM),
+            config_validator=self.validate_config,
+            input_validator=self.validate_input,
+            handler=handle_wrapper
+        )
+
+
+# ======================================================================
+# CustomActionHandlerWithoutConfig — handler without configuration
+# ======================================================================
+
+class CustomActionHandlerWithoutConfig(RegistrableCustomActionHandler[None, D]):
+    """
+    Custom action handler without configuration.
+
+    Subclasses must implement:
+      - ``action_name`` (property)
+      - ``validate_input``
+      - ``handle``
+    """
     @property
     @abstractmethod
     def action_name(self) -> ActionName:
@@ -58,19 +114,29 @@ class CustomActionHandlerWithoutConfig(RegistrableCustomActionHandler, Generic[D
     @abstractmethod
     async def handle(self, input: D) -> CompletedResult:
         raise NotImplementedError()
-    
+
     @override
-    def register(self, run_action: RunAsyncAction, action_handler: AsyncActionHandler) -> Any:
+    def to_action_handler_factory_input(self) -> ActionHandlerFactoryInput[None, D]:
+        def validate_input_wrapper(_: None, dto_list: list[DataDto]):
+            """Adapts to the ``validate_input(input)`` signature — no config."""
+            return self.validate_input(dto_list)
+        @named_action_handler(self.action_name)
         def handle_wrapper(data: ActionData[None, D]):
+            """Adapts to the ``handle(input)`` signature — no config."""
             return self.handle(data.input)
-        action = Action(self.action_name, ActionType.CUSTOM)
-        handle_wrapper.__name__ = f"handle_{action.name}"
-        return ActionHandlerFactory(run_action, action_handler).create_without_config(
-            action,
-            self.validate_input
-        )(handle_wrapper)
+        return ActionHandlerFactoryInput(
+            action=Action(self.action_name, ActionType.CUSTOM),
+            config_validator=lambda _: Result.Ok(None),
+            input_validator=validate_input_wrapper,
+            handler=handle_wrapper
+        )
 
 def create_custom_action_registration_handler(run_action: RunAsyncAction, action_handler: AsyncActionHandler):
-    def register_custom_action(custom_action: RegistrableCustomActionHandler):
-        return custom_action.register(run_action, action_handler)
+    def register_custom_action(custom_action: RegistrableCustomActionHandler[TCfg, D]):
+        factory_input = custom_action.to_action_handler_factory_input()
+        return ActionHandlerFactory(run_action, action_handler).create(
+                factory_input.action,
+                factory_input.config_validator,
+                factory_input.input_validator,
+            )(factory_input.handler)
     return register_custom_action
