@@ -7,7 +7,7 @@ from expression import Result
 
 from shared.action import Action, ActionName, ActionType
 from shared.completedresult import CompletedResult
-from shared.pipeline.actionhandler import ActionData, ActionHandlerFactory, AsyncActionHandler, DataDto, RunAsyncAction
+from shared.pipeline.actionhandler import ActionData, DataDto
 
 TCfg = TypeVar("TCfg")
 D = TypeVar("D")
@@ -130,13 +130,3 @@ class CustomActionHandlerWithoutConfig(RegistrableCustomActionHandler[None, D]):
             input_validator=validate_input_wrapper,
             handler=handle_wrapper
         )
-
-def create_custom_action_registration_handler(run_action: RunAsyncAction, action_handler: AsyncActionHandler):
-    def register_custom_action(custom_action: RegistrableCustomActionHandler[TCfg, D]):
-        factory_input = custom_action.to_action_handler_factory_input()
-        return ActionHandlerFactory(run_action, action_handler).create(
-                factory_input.action,
-                factory_input.config_validator,
-                factory_input.input_validator,
-            )(factory_input.handler)
-    return register_custom_action
