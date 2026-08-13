@@ -85,7 +85,34 @@ class InputToActionsHandler(CustomActionHandler[InputToActionsConfig, InputToAct
             return _walk(actions)
         def input_item_to_actions(input: DataDto):
             resolver = JmesPathInputResolver(input)
-            return resolve_input_to_actions(config.actions, resolver)
+            filtered_actions = []
+            
+            for action_template in config.actions:
+                # 1. Check exclusion condition
+                exclude_expr = action_template.get('exclude_when')
+                
+                if exclude_expr is not None and isinstance(exclude_expr, str):
+                    # 2. Evaluate the JMESPath expression against the input data
+                    try:
+                        should_exclude = jmespath.search(exclude_expr, input)
+                    except Exception:
+                        # In case of JMESPath parsing error, fail-safe: do not exclude
+                        should_exclude = False
+                    
+                    # Interpret result: None, False, 0, "" are considered falsy (do not exclude)
+                    if should_exclude:
+                        continue # Skip this action
+
+                # 3. Clone the action without the 'exclude_when' field
+                # This ensures the final Definition structure is valid
+                action_copy = {k: v for k, v in action_template.items() if k != 'exclude_when'}
+                
+                # 4. Apply standard template resolution to the remaining fields
+                resolved_action = resolve_input_to_actions([action_copy], resolver)[0]
+                
+                filtered_actions.append(resolved_action)
+                
+            return filtered_actions
         def input_item_to_definition_with_id(input: DataDto):
             raw_definition = input_item_to_actions(input)
             definition_res = DefinitionAdapter.from_list(raw_definition)
