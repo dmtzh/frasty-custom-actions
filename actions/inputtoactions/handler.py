@@ -25,6 +25,10 @@ class JmesPathInputResolver:
         self._input = input
 
     def __call__(self, path: str) -> Any:
+        # Special case: "@" resolves to the entire input data context
+        if path == "@":
+            return self._input
+        
         # Construct a safe JMESPath expression by quoting each part of the path
         expression = ".".join(f'"{path_item.strip()}"' for path_item in path.split("."))
         return jmespath.search(expression, self._input)
@@ -46,7 +50,7 @@ class InputToActionsHandler(CustomActionHandler[InputToActionsConfig, InputToAct
         def resolve_input_to_actions(
             actions: list[DataDto],
             resolver: Callable[[str], Any],
-            pattern: str = r'\{\{\s*([\w.]+)\s*\}\}'
+            pattern: str = r'\{\{\s*([\w.@]+)\s*\}\}'
         ) -> Any:
             """
             Recursively walks through actions, replacing {{param}} with results from resolver(param).
