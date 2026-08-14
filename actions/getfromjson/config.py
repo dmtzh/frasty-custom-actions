@@ -6,12 +6,28 @@ from typing import Any, NamedTuple, Optional
 from expression import Result
 
 from shared.utils.parse import parse_bool_str, parse_from_dict, parse_non_empty_str
-from shared.utils.result import apply
+from shared.utils.result import apply, apply3
 from shared.utils.string import strip_and_lowercase
 
 class Operation(StrEnum):
     QUERY = "query"
     FILTER = "filter"
+
+class Mode(StrEnum):
+    SINGLE = "single"
+    ALL = "all"
+
+    @staticmethod
+    def parse(value: str) -> Optional['Mode']:
+        if value is None:
+            return None
+        match strip_and_lowercase(value):
+            case Mode.SINGLE.value:
+                return Mode.SINGLE
+            case Mode.ALL.value:
+                return Mode.ALL
+            case _:
+                return None
 
 class Parser(StrEnum):
     JSONPATH_NG = "jsonpath-ng"
@@ -38,6 +54,7 @@ class GetFromJsonQuery:
     query: str
     output_name: str | None
     default_value: DefaultValueConfig | None
+    mode: Mode
 
     @staticmethod
     def from_dict(data: dict) -> Result['GetFromJsonQuery', str]:
@@ -51,10 +68,15 @@ class GetFromJsonQuery:
             if "default_value" not in data:
                 return None
             return DefaultValueConfig(data["default_value"])
+        def validate_mode() -> Result[Mode, str]:
+            if "mode" not in data:
+                return Result.Ok(Mode.SINGLE)
+            return parse_from_dict(data, "mode", Mode.parse)
         query_res = validate_query()
         output_name_res = validate_output_name()
         opt_default_value = get_default_value()
-        config_res = apply(lambda query, output_name: GetFromJsonQuery(query, output_name, opt_default_value), ", ".join, query_res, output_name_res)
+        mode_res = validate_mode()
+        config_res = apply3(lambda query, output_name, mode: GetFromJsonQuery(query, output_name, opt_default_value, mode), ", ".join, query_res, output_name_res, mode_res)
         return config_res
 
 class GetFromJsonFilter(str):

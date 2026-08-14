@@ -15,7 +15,7 @@ from shared.utils.exceptiondecorators import ex_to_error_result
 
 from customactionhandler import CustomActionHandler
 
-from .config import DefaultValueConfig, GetFromJsonFilter, GetFromJsonQuery, Operation, GetFromJsonConfig, GetFromJsonOperationConfig, Parser
+from .config import DefaultValueConfig, GetFromJsonFilter, GetFromJsonQuery, Operation, GetFromJsonConfig, GetFromJsonOperationConfig, Parser, Mode
 
 type GetFromJsonInput = list[DataDto]
 type OperationHandlerFunc = Callable[[list, GetFromJsonOperationConfig], Result[list, Error]]
@@ -72,7 +72,7 @@ class JmespathCustomFunctions(functions.Functions):
 def jmespath_query_handler(input_list, operation: GetFromJsonOperationConfig) -> list:
     if not isinstance(operation.data, GetFromJsonQuery):
         raise ValueError(f"Invalid 'operation' value {operation}")
-    expression = f"[].{operation.data.query}"
+    expression = f"[].{operation.data.query}" if operation.data.mode == Mode.SINGLE else f"[{operation.data.query}]"
     options = jmespath.Options(custom_functions=JmespathCustomFunctions())
     match operation.data.output_name:
         case None:
