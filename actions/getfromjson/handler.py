@@ -68,6 +68,11 @@ class JmespathCustomFunctions(functions.Functions):
     def _func_mod(self, a, b):
         return a % b
 
+    @functions.signature({'types': ['array']}, {'types': ['number']}, {'types': ['number']})
+    def _func_slice(self, arr, start, end):
+        expression = f"[{start}:{end}]"
+        return jmespath.search(expression, arr)
+
 @ex_to_error_result(Error.from_exception)
 def jmespath_query_handler(input_list, operation: GetFromJsonOperationConfig) -> list:
     if not isinstance(operation.data, GetFromJsonQuery):
