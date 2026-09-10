@@ -73,6 +73,12 @@ class JmespathCustomFunctions(functions.Functions):
         expression = f"[{start}:{end}]"
         return jmespath.search(expression, arr)
 
+    @functions.signature({'types': ['object']}, {'types': ['array']})
+    def _func_merge_with_array_items(self, shared_object, arr):
+        expression = f"[*].merge(shared_object,item)"
+        data = [{"shared_object": shared_object, "item": item} for item in arr]
+        return jmespath.search(expression, data)
+
 @ex_to_error_result(Error.from_exception)
 def jmespath_query_handler(input_list, operation: GetFromJsonOperationConfig) -> list:
     if not isinstance(operation.data, GetFromJsonQuery):
