@@ -79,6 +79,22 @@ class JmespathCustomFunctions(functions.Functions):
         data = [{"shared_object": shared_object, "item": item} for item in arr]
         return jmespath.search(expression, data)
 
+    @functions.signature({'types': ['number']}, {'types': ['number']})
+    def _func_divide_num(self, a, b):
+        return a / b
+
+    @functions.signature({'types': ['number']}, {'types': ['number']})
+    def _func_subtract_num(self, a, b):
+        return a - b
+
+    @functions.signature({'types': ['number']}, {'types': ['number']})
+    def _func_multiply_num(self, a, b):
+        return a * b
+
+    @functions.signature({'types': ['number']}, {'types': ['number']})
+    def _func_add_num(self, a, b):
+        return a + b
+
 @ex_to_error_result(Error.from_exception)
 def jmespath_query_handler(input_list, operation: GetFromJsonOperationConfig) -> list:
     if not isinstance(operation.data, GetFromJsonQuery):
