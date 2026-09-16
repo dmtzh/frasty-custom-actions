@@ -10,7 +10,7 @@ from shared.customtypes import Error
 from shared.pipeline.actionhandler import DataDto
 from shared.utils.exceptiondecorators import ex_to_error_result
 from shared.utils.parse import parse_bool_str, parse_from_dict
-from shared.utils.result import to_ok_list, to_error_list
+from shared.utils.result import apply, sequence_accumulating, to_ok_list
 
 from customactionhandler import CustomActionHandler
 
@@ -34,12 +34,8 @@ class ContentToJsonConfig:
             return parse_from_dict(data, "return_empty_result", parse_bool_str)
         operations_res = validate_operations()
         return_empty_result_res = validate_return_empty_result()
-        errs = to_error_list(operations_res, return_empty_result_res)
-        match errs:
-            case []:
-                return Result.Ok(ContentToJsonConfig(operations_res.ok, return_empty_result_res.ok))
-            case _:
-                return Result.Error(", ".join(errs))
+        config_res = apply(ContentToJsonConfig, ", ".join, operations_res, return_empty_result_res)
+        return config_res
 
 type ContentToJsonInput = list[DataDto]
 
@@ -73,7 +69,8 @@ class ContentToJsonHandler(CustomActionHandler[ContentToJsonConfig, ContentToJso
         success_results = to_ok_list(*results)
         match success_results:
             case []:
-                err_msgs = map(str, to_error_list(*results))
+                errs = sequence_accumulating(results).swap().default_value(tuple[Error, ...]())
+                err_msgs = map(str, errs)
                 return CompletedWith.Error(", ".join(err_msgs))
             case _:
                 match config.operations:
