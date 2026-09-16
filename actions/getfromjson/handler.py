@@ -99,15 +99,7 @@ class JmespathCustomFunctions(functions.Functions):
 def jmespath_query_handler(input_list, operation: GetFromJsonOperationConfig) -> list:
     if not isinstance(operation.data, GetFromJsonQuery):
         raise ValueError(f"Invalid 'operation' value {operation}")
-    match operation.data.mode:
-        case Mode.SINGLE:
-            operators = ["&&", "||", "==", "!=", "<", ">"]
-            if any(op in operation.data.query for op in operators):
-                expression = f"[].{{output: {operation.data.query}}}[].output"
-            else:
-                expression = f"[].{operation.data.query}"
-        case Mode.ALL:
-            expression = f"[{operation.data.query}]"
+    expression = f"[].{operation.data.query}" if operation.data.mode == Mode.SINGLE else f"[{operation.data.query}]"
     options = jmespath.Options(custom_functions=JmespathCustomFunctions())
     match operation.data.output_name:
         case None:
