@@ -99,13 +99,23 @@ class JmespathCustomFunctions(functions.Functions):
 def jmespath_query_handler(input_list, operation: GetFromJsonOperationConfig) -> list:
     if not isinstance(operation.data, GetFromJsonQuery):
         raise ValueError(f"Invalid 'operation' value {operation}")
-    expression = f"[].{operation.data.query}" if operation.data.mode == Mode.SINGLE else f"[{operation.data.query}]"
+    
     options = jmespath.Options(custom_functions=JmespathCustomFunctions())
     match operation.data.output_name:
         case None:
+            expression = f"[*].{operation.data.query}" if operation.data.mode == Mode.SINGLE else f"[{operation.data.query}]"
             return jmespath.search(expression, input_list, options)
         case output_name:
-            return functools.reduce(lambda acc, curr: acc + [curr | {output_name: sr} for sr in jmespath.search(expression, [curr], options)], input_list, [])
+            match operation.data.mode:
+                case Mode.SINGLE if operation.data.query.endswith("[]"):
+                    expression = f"[*].{operation.data.query}"
+                    return functools.reduce(lambda acc, curr: acc + [curr | {output_name: sr} for sr in jmespath.search(expression, [curr], options)], input_list, [])
+                case Mode.SINGLE:
+                    expression = f'[*].merge(@, {{"{operation.data.output_name}": {operation.data.query}}})'
+                    return jmespath.search(expression, input_list, options)
+                case Mode.ALL:
+                    expression = f"[{operation.data.query}]"
+                    return functools.reduce(lambda acc, curr: acc + [curr | {output_name: sr} for sr in jmespath.search(expression, [curr], options)], input_list, [])
 
 @ex_to_error_result(Error.from_exception)
 def jmespath_filter_handler(input_list, operation: GetFromJsonOperationConfig) -> list:
