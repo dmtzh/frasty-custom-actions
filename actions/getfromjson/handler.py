@@ -73,6 +73,11 @@ class JmespathCustomFunctions(functions.Functions):
         expression = f"[{start}:{end}]"
         return jmespath.search(expression, arr)
 
+    @functions.signature({'types': ['array']}, {'types': ['number']})
+    def _func_item_at(self, arr, index):
+        expression = f"[{index}]"
+        return jmespath.search(expression, arr)
+
     @functions.signature({'types': ['object']}, {'types': ['array']})
     def _func_merge_with_array_items(self, shared_object, arr):
         expression = f"[*].merge(shared_object,item)"
