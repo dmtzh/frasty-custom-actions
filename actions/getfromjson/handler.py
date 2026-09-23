@@ -12,6 +12,7 @@ from shared.completedresult import CompletedWith, CompletedResult
 from shared.customtypes import Error
 from shared.pipeline.actionhandler import DataDto
 from shared.utils.exceptiondecorators import ex_to_error_result
+from shared.validation import format_value_errors
 
 from customactionhandler import CustomActionHandler
 
@@ -22,8 +23,8 @@ type OperationHandlerFunc = Callable[[list, GetFromJsonOperationConfig], Result[
 
 @ex_to_error_result(Error.from_exception)
 def jsonpath_ng_query_handler(input_list, operation: GetFromJsonOperationConfig):
-    if not isinstance(operation.data, GetFromJsonQuery):
-        raise ValueError(f"Invalid 'operation' value {operation}")
+    assert isinstance(operation.data, GetFromJsonQuery), \
+        f"Invariant violation: expected GetFromJsonQuery for QUERY operation, got {type(operation.data).__name__}"
     data = operation.data
     def match_value_to_result(match_value, default_value: DefaultValueConfig | None):
         match match_value:
@@ -44,7 +45,7 @@ def jsonpath_ng_query_handler(input_list, operation: GetFromJsonOperationConfig)
                 dict_without_output_name = {k:v for k, v in input.items() if k != output_name}
                 output_list = [dict_without_output_name | {output_name: match} for match in matches]
                 return output_list
-    return functools.reduce(lambda acc, curr: acc + get_from_input(curr, data), input_list, [])
+    return [item for dto in input_list for item in get_from_input(dto, data)]
 
 # Create a closure to act as a persistent counter
 def make_counter():
@@ -102,8 +103,8 @@ class JmespathCustomFunctions(functions.Functions):
 
 @ex_to_error_result(Error.from_exception)
 def jmespath_query_handler(input_list, operation: GetFromJsonOperationConfig) -> list:
-    if not isinstance(operation.data, GetFromJsonQuery):
-        raise ValueError(f"Invalid 'operation' value {operation}")
+    assert isinstance(operation.data, GetFromJsonQuery), \
+        f"Invariant violation: expected GetFromJsonQuery for QUERY operation, got {type(operation.data).__name__}"
     
     options = jmespath.Options(custom_functions=JmespathCustomFunctions())
     match operation.data.output_name:
@@ -114,25 +115,34 @@ def jmespath_query_handler(input_list, operation: GetFromJsonOperationConfig) ->
             match operation.data.mode:
                 case Mode.SINGLE if operation.data.query.endswith("[]"):
                     expression = f"[*].{operation.data.query}"
-                    return functools.reduce(lambda acc, curr: acc + [curr | {output_name: sr} for sr in jmespath.search(expression, [curr], options)], input_list, [])
+                    return [
+                        curr | {output_name: sr}
+                        for curr in input_list
+                        for sr in jmespath.search(expression, [curr], options)
+                    ]
                 case Mode.SINGLE:
                     expression = f'[*].merge(@, {{"{operation.data.output_name}": {operation.data.query}}})'
                     return jmespath.search(expression, input_list, options)
                 case Mode.ALL:
                     expression = f"[{operation.data.query}]"
-                    return functools.reduce(lambda acc, curr: acc + [curr | {output_name: sr} for sr in jmespath.search(expression, [curr], options)], input_list, [])
+                    return [
+                        curr | {output_name: sr}
+                        for curr in input_list
+                        for sr in jmespath.search(expression, [curr], options)
+                    ]
 
 @ex_to_error_result(Error.from_exception)
 def jmespath_filter_handler(input_list, operation: GetFromJsonOperationConfig) -> list:
-    if not isinstance(operation.data, GetFromJsonFilter):
-        raise ValueError(f"Invalid 'operation' value {operation}")
+    assert isinstance(operation.data, GetFromJsonFilter), \
+        f"Invariant violation: expected GetFromJsonFilter for FILTER operation, got {type(operation.data).__name__}"
+    
     expression = f"[?{operation.data}]"
     return jmespath.search(expression, input_list)
 
 @ex_to_error_result(Error.from_exception)
 def jsonpath_ng_filter_handler(input_list, operation: GetFromJsonOperationConfig) -> list:
-    if not isinstance(operation.data, GetFromJsonFilter):
-        raise ValueError(f"Invalid 'operation' value {operation}")
+    assert isinstance(operation.data, GetFromJsonFilter), \
+        f"Invariant violation: expected GetFromJsonFilter for FILTER operation, got {type(operation.data).__name__}"
     expression = f"$[?{operation.data}]"
     jp_query = jpx.parse(expression)
     matches = [match.value for match in jp_query.find(input_list)]
@@ -146,10 +156,10 @@ OPERATION_HANDLERS: dict[tuple[Operation, Parser], OperationHandlerFunc] = {
 }
 
 def dispatch_to_operation_handler(input: list, operation: GetFromJsonOperationConfig) -> Result[list, Error]:
-    try:
-        return OPERATION_HANDLERS[(operation.operation, operation.parser)](input, operation)
-    except KeyError:
-        return Result.Error(Error(f"Invalid 'operation' value {operation}"))
+    handler = OPERATION_HANDLERS.get((operation.operation, operation.parser))
+    assert handler is not None, \
+        f"Invariant violation: no handler registered for ({operation.operation}, {operation.parser})"
+    return handler(input, operation)
 
 class GetFromJsonHandler(CustomActionHandler[GetFromJsonConfig, GetFromJsonInput]):
     @property
@@ -157,7 +167,7 @@ class GetFromJsonHandler(CustomActionHandler[GetFromJsonConfig, GetFromJsonInput
         return ActionName("getfromjson")
 
     def validate_config(self, raw_config: dict[str, Any]) -> Result[GetFromJsonConfig, Any]:
-        return GetFromJsonConfig.from_dict(raw_config)
+        return GetFromJsonConfig.from_dict(raw_config).map_error(format_value_errors)
 
     def validate_input(self, _: GetFromJsonConfig, dto_list: list[DataDto]) -> Result[GetFromJsonInput, Any]:
         return Result.Ok(dto_list)
@@ -169,5 +179,9 @@ class GetFromJsonHandler(CustomActionHandler[GetFromJsonConfig, GetFromJsonInput
             return CompletedWith.Error(str(err))
 
         initial_res = Result[GetFromJsonInput, Error].Ok(input_list)
-        res = functools.reduce(lambda acc_res, operation: acc_res.bind(lambda acc: dispatch_to_operation_handler(acc, operation)), config.operations, initial_res)
+        res = functools.reduce(
+            lambda acc_res, operation: acc_res.bind(lambda acc: dispatch_to_operation_handler(acc, operation)),
+            config.operations,
+            initial_res
+        )
         return res.map(ok_to_completed_result).default_with(err_to_completed_result)
