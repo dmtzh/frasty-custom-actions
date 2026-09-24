@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import functools
 import json
 from typing import Any
 
@@ -9,8 +10,9 @@ from shared.completedresult import CompletedResult, CompletedWith
 from shared.customtypes import Error
 from shared.pipeline.actionhandler import DataDto
 from shared.utils.exceptiondecorators import ex_to_error_result
-from shared.utils.parse import parse_bool_str, parse_from_dict
-from shared.utils.result import apply, sequence_accumulating, to_ok_list
+from shared.utils.parse import parse_bool_str, parse_dict_field
+from shared.utils.result import apply, sequence_accumulating, to_ok_list, traverse_accumulating_with_index
+from shared.validation import ValueError as ValueErr, format_value_errors
 
 from customactionhandler import CustomActionHandler
 
@@ -23,18 +25,18 @@ class ContentToJsonConfig:
     return_empty_result: bool
 
     @staticmethod
-    def from_dict(data: dict[str, Any]) -> Result['ContentToJsonConfig', str]:
-        def validate_operations() -> Result[tuple[GetFromJsonOperationConfig, ...] | None, str]:
+    def from_dict(data: dict[str, Any]) -> Result['ContentToJsonConfig', tuple[ValueErr, ...]]:
+        def validate_operations() -> Result[tuple[GetFromJsonOperationConfig, ...] | None, tuple[ValueErr, ...]]:
             if "operations" not in data:
                 return Result.Ok(None)
             return GetFromJsonConfig.from_dict(data).map(lambda config: config.operations)
-        def validate_return_empty_result() -> Result[bool, str]:
+        def validate_return_empty_result() -> Result[bool, ValueErr]:
             if "return_empty_result" not in data:
                 return Result.Ok(False)
-            return parse_from_dict(data, "return_empty_result", parse_bool_str)
+            return parse_dict_field(data, "return_empty_result", parse_bool_str)
         operations_res = validate_operations()
         return_empty_result_res = validate_return_empty_result()
-        config_res = apply(ContentToJsonConfig, ", ".join, operations_res, return_empty_result_res)
+        config_res = apply(ContentToJsonConfig, lambda errs: errs, operations_res, return_empty_result_res)
         return config_res
 
 type ContentToJsonInput = list[DataDto]
@@ -45,18 +47,19 @@ class ContentToJsonHandler(CustomActionHandler[ContentToJsonConfig, ContentToJso
         return ActionName("contenttojson")
     
     def validate_config(self, raw_config: dict[str, Any]) -> Result[ContentToJsonConfig, Any]:
-        return ContentToJsonConfig.from_dict(raw_config)
+        return ContentToJsonConfig.from_dict(raw_config).map_error(format_value_errors)
     
     def validate_input(self, _: ContentToJsonConfig, dto_list: list[DataDto]) -> Result[ContentToJsonInput, Any]:
         if not dto_list:
             return Result.Error("input data is missing")
-        def from_dict(data: DataDto):
-            content_res = parse_from_dict(data, "content", lambda content: content if isinstance(content, str) else None)
-            return content_res.map(lambda _: data)
-        data_list = to_ok_list(*map(from_dict, dto_list))
-        if not data_list:
-            return Result.Error("'content' key is missing")
-        return Result.Ok(data_list)
+
+        def validate_item(idx: int, dto: DataDto) -> Result[DataDto, ValueErr]:
+            return parse_dict_field(dto, "content", lambda v: v if isinstance(v, str) else None) \
+                .map(lambda _: dto) \
+                .map_error(lambda err: err.with_prefix(f"input_data[{idx}]"))
+
+        return traverse_accumulating_with_index(dto_list, validate_item) \
+            .map_error(format_value_errors)
     
     async def handle(self, config: ContentToJsonConfig, input_list: ContentToJsonInput) -> CompletedResult:
         @ex_to_error_result(Error.from_exception)
