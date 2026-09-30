@@ -101,6 +101,21 @@ class JmespathCustomFunctions(functions.Functions):
     def _func_add_num(self, a, b):
         return a + b
 
+    @functions.signature({'types': ['array']}, {'types': ['string']})
+    def _func_group_by(self, arr, key):
+        groups = {}
+        for item in arr:
+            if not isinstance(item, dict):
+                continue
+            group_key = item.get(key)
+            if group_key is None:
+                continue
+            str_key = str(group_key)
+            if str_key not in groups:
+                groups[str_key] = []
+            groups[str_key].append(item)
+        return [{"key": k, "value": v} for k, v in groups.items()]
+
 @ex_to_error_result(Error.from_exception)
 def jmespath_query_handler(input_list, operation: GetFromJsonOperationConfig) -> list:
     assert isinstance(operation.data, GetFromJsonQuery), \
