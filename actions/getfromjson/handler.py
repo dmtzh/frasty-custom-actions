@@ -124,8 +124,14 @@ def jmespath_query_handler(input_list, operation: GetFromJsonOperationConfig) ->
     options = jmespath.Options(custom_functions=JmespathCustomFunctions())
     match operation.data.output_name:
         case None:
-            expression = f"[*].{operation.data.query}" if operation.data.mode == Mode.SINGLE else f"[{operation.data.query}]"
-            return jmespath.search(expression, input_list, options)
+            match operation.data.mode:
+                case Mode.SINGLE:
+                    expression = f"[*].{operation.data.query}"
+                    return jmespath.search(expression, input_list, options)
+                case Mode.ALL:
+                    expression = f"{operation.data.query}"
+                    res = jmespath.search(expression, input_list, options)
+                    return res if isinstance(res, list) else [res]
         case output_name:
             match operation.data.mode:
                 case Mode.SINGLE if operation.data.query.endswith("[]"):
