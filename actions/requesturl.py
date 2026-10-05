@@ -13,9 +13,10 @@ from shared.completedresult import CompletedResult, CompletedWith
 from shared.customtypes import Error
 from shared.pipeline.actionhandler import DataDto
 from shared.utils.exceptiondecorators import async_ex_to_error_result
-from shared.utils.parse import PositiveInt, parse_from_dict, parse_value
+from shared.utils.parse import PositiveInt, parse_dict_field, parse_val
 from shared.utils.result import apply4, to_ok_list, sequence_accumulating, traverse_accumulating_with_index
 from shared.utils.string import strip_and_lowercase
+from shared.validation import format_value_errors, ValueError as ValueErr, ValueMissing, with_prefix
 
 from customactionhandler import CustomActionHandler
 
@@ -24,15 +25,13 @@ class RequestUrlConfig:
     delay_between_requests: int
 
     @staticmethod
-    def from_dict(data: dict[str, Any]) -> Result['RequestUrlConfig', str]:
-        def validate_delay_between_requests() -> Result[int, str]:
-            if "delay_between_requests" not in data:
-                return Result.Ok(0)
-            return parse_from_dict(data, "delay_between_requests", PositiveInt.parse)
-        delay_between_requests_res = validate_delay_between_requests()
+    def from_dict(data: dict[str, Any]) -> Result['RequestUrlConfig', ValueErr]:
+        if "delay_between_requests" not in data:
+            delay_res: Result[int, ValueErr] = Result.Ok(0)
+        else:
+            delay_res = parse_dict_field(data, "delay_between_requests", PositiveInt.parse)
 
-        config_res = delay_between_requests_res.map(RequestUrlConfig)
-        return config_res
+        return delay_res.map(RequestUrlConfig)
 
 class Url:
     """
@@ -121,39 +120,35 @@ class RequestUrlInput:
     headers: dict[str, str] | None
     json: dict[str, Any] | None
     data: DataDto
+
     @staticmethod
-    def from_dict(data: DataDto) -> Result['RequestUrlInput', str]:
-        def validate_headers() -> Result[dict[str, str] | None, str]:
-            @effect.result[dict[str, str] | None, str]()
-            def parse_headers():
-                raw_headers_dict = yield from parse_from_dict(data, "headers", lambda headers: headers if isinstance(headers, dict) else None)
-                if not raw_headers_dict:
-                    return None
-                all_keys_and_vals_str = all(isinstance(k, str) and isinstance(v, str) for k, v in raw_headers_dict.items())
-                headers_dict: dict[str, str] = yield from parse_value(raw_headers_dict, "headers", lambda headers: headers if all_keys_and_vals_str else None)
-                return headers_dict
-            return parse_headers() if "headers" in data else Result.Ok(None)
-        def validate_json() -> Result[dict[str, Any] | None, str]:
-            @effect.result[dict[str, Any] | None, str]()
-            def parse_json():
-                raw_json_dict = yield from parse_from_dict(data, "json", lambda json: json if isinstance(json, dict) else None)
-                if not raw_json_dict:
-                    return None
-                all_keys_str = all(isinstance(k, str) for k in raw_json_dict)
-                json_dict: dict[str, Any] = yield from parse_value(raw_json_dict, "json", lambda json: json if all_keys_str else None)
-                return json_dict
-            return parse_json() if "json" in data else Result.Ok(None)
-        
-        url_res = parse_from_dict(data, "url", Url.parse)
-        http_method_res = parse_from_dict(data, "http_method", HttpMethod.parse)
+    def from_dict(data: DataDto) -> Result['RequestUrlInput', tuple[ValueErr, ...]]:
+        @effect.result[dict[str, str] | None, ValueErr]()
+        def validate_headers():
+            if "headers" not in data:
+                return None
+            raw_headers = yield from parse_dict_field(data, "headers", lambda raw_headers: raw_headers if isinstance(raw_headers, dict) else None)
+            valid_headers = yield from parse_val(raw_headers, "headers", lambda raw: raw if all(isinstance(k, str) and isinstance(v, str) for k, v in raw.items()) else None)
+            return valid_headers
+
+        @effect.result[dict[str, Any] | None, ValueErr]()
+        def validate_json():
+            if "json" not in data:
+                return None
+            raw_json = yield from parse_dict_field(data, "json", lambda raw_json: raw_json if isinstance(raw_json, dict) else None)
+            valid_json = yield from parse_val(raw_json, "json", lambda raw: raw if all(isinstance(k, str) for k in raw.keys()) else None)
+            return valid_json
+
+        url_res = parse_dict_field(data, "url", Url.parse)
+        http_method_res = parse_dict_field(data, "http_method", HttpMethod.parse)
         headers_res = validate_headers()
         json_res = validate_json()
 
-        config_res = apply4(
+        return apply4(
             lambda url, http_method, headers, json: RequestUrlInput(url, http_method, headers, json, data),
-            ", ".join, url_res, http_method_res, headers_res, json_res
+            lambda errs: errs,
+            url_res, http_method_res, headers_res, json_res
         )
-        return config_res
 
 class RequestUrlUnexpectedError(Error):
     '''Unexpected error when request url'''
@@ -162,22 +157,23 @@ class RequestUrlHandler(CustomActionHandler[RequestUrlConfig, list[RequestUrlInp
     @property
     def action_name(self) -> ActionName:
         return ActionName("requesturl")
-    
+
     def validate_config(self, raw_config: dict[str, Any]) -> Result[RequestUrlConfig, Any]:
-        return RequestUrlConfig.from_dict(raw_config)
-    
+        return RequestUrlConfig.from_dict(raw_config)\
+            .map_error(lambda err: (err,))\
+            .map_error(format_value_errors)
+
     def validate_input(self, _: RequestUrlConfig, dto_list: list[DataDto]) -> Result[list[RequestUrlInput], Any]:
         if not dto_list:
-            return Result.Error("input data is missing")
+            err = ValueMissing("input_data")
+            return Result.Error(format_value_errors((err,)))
 
-        def validate_input_item(idx: int, data: DataDto):
-            input_item_res = RequestUrlInput.from_dict(data)\
-                .map_error(lambda err: f"input_data[{idx}]: {err}")
-            return input_item_res
+        def validate_input_item(idx: int, data: DataDto) -> Result[RequestUrlInput, tuple[ValueErr, ...]]:
+            return RequestUrlInput.from_dict(data)\
+                .map_error(lambda errs: with_prefix(f"input_data[{idx}]", errs))
 
-        input_res = traverse_accumulating_with_index(dto_list, validate_input_item)\
-            .map_error(", ".join)
-        return input_res
+        input_res = traverse_accumulating_with_index(dto_list, validate_input_item)
+        return input_res.map_error(format_value_errors)
 
     async def handle(self, config: RequestUrlConfig, input_list: list[RequestUrlInput]) -> CompletedResult:
         @async_ex_to_error_result(RequestUrlUnexpectedError.from_exception)
