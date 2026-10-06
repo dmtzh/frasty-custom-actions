@@ -12,7 +12,6 @@ from shared.action import ActionName
 from shared.completedresult import CompletedResult, CompletedWith
 from shared.customtypes import Error
 from shared.pipeline.actionhandler import DataDto
-from shared.utils.exceptiondecorators import async_ex_to_error_result
 from shared.utils.parse import PositiveInt, parse_dict_field, parse_val
 from shared.utils.result import apply4, to_ok_list, sequence_accumulating, traverse_accumulating_with_index
 from shared.utils.string import strip_and_lowercase
@@ -176,7 +175,6 @@ class RequestUrlHandler(CustomActionHandler[RequestUrlConfig, list[RequestUrlInp
         return input_res.map_error(format_value_errors)
 
     async def handle(self, config: RequestUrlConfig, input_list: list[RequestUrlInput]) -> CompletedResult:
-        @async_ex_to_error_result(RequestUrlUnexpectedError.from_exception)
         async def request_data(session: aiohttp.ClientSession, delay_before_request: int, timeout: aiohttp.ClientTimeout, input: RequestUrlInput) -> Result[dict[str, Any], RequestUrlUnexpectedError]:
             await asyncio.sleep(delay_before_request)
             try:
@@ -199,6 +197,8 @@ class RequestUrlHandler(CustomActionHandler[RequestUrlConfig, list[RequestUrlInp
                 return Result.Error(RequestUrlUnexpectedError(f"Request timeout {timeout.total} seconds"))
             except aiohttp.client_exceptions.ClientConnectorError:
                 return Result.Error(RequestUrlUnexpectedError(f"Cannot connect to {input.url} ({input.http_method})"))
+            except Exception as ex:
+                return Result.Error(RequestUrlUnexpectedError.from_exception(ex))
         def ok_to_completed_result(result_list: list[DataDto]) -> CompletedResult:
             return CompletedWith.Data(result_list)
         def err_to_completed_result(err: Any) -> CompletedResult:
