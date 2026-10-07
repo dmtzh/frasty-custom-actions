@@ -158,7 +158,8 @@ def jmespath_filter_handler(input_list, operation: GetFromJsonOperationConfig) -
         f"Invariant violation: expected GetFromJsonFilter for FILTER operation, got {type(operation.data).__name__}"
     
     expression = f"[?{operation.data}]"
-    return jmespath.search(expression, input_list)
+    options = jmespath.Options(custom_functions=JmespathCustomFunctions())
+    return jmespath.search(expression, input_list, options)
 
 @ex_to_error_result(Error.from_exception)
 def jsonpath_ng_filter_handler(input_list, operation: GetFromJsonOperationConfig) -> list:
