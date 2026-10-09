@@ -124,16 +124,24 @@ class RequestUrlInput:
     def from_dict(data: DataDto) -> Result['RequestUrlInput', tuple[ValueErr, ...]]:
         @effect.result[dict[str, str] | None, ValueErr]()
         def validate_headers():
+            # Optional key: yield Ok(None) explicitly. A bare `return None` inside an
+            # @effect.result generator hits the builder's `zero` case, which raises
+            # NotImplementedError in expression 5.x instead of returning Ok(None).
             if "headers" not in data:
-                return None
+                return (yield from Result.Ok(None))
             raw_headers = yield from parse_dict_field(data, "headers", lambda raw_headers: raw_headers if isinstance(raw_headers, dict) else None)
             valid_headers = yield from parse_val(raw_headers, "headers", lambda raw: raw if all(isinstance(k, str) and isinstance(v, str) for k, v in raw.items()) else None)
             return valid_headers
 
         @effect.result[dict[str, Any] | None, ValueErr]()
         def validate_json():
+            # Optional key: yield Ok(None) explicitly. A bare `return None` inside an
+            # @effect.result generator hits the builder's `zero` case, which raises
+            # NotImplementedError in expression 5.x instead of returning Ok(None).
             if "json" not in data:
-                return None
+                return (yield from Result.Ok(None))
+            # For all other cases (including an explicit None/null value) the existing
+            # validation below is kept unchanged.
             raw_json = yield from parse_dict_field(data, "json", lambda raw_json: raw_json if isinstance(raw_json, dict) else None)
             valid_json = yield from parse_val(raw_json, "json", lambda raw: raw if all(isinstance(k, str) for k in raw.keys()) else None)
             return valid_json
