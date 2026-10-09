@@ -19,6 +19,9 @@ from shared.validation import format_value_errors, ValueError as ValueErr, Value
 
 from customactionhandler import CustomActionHandler
 
+# Default timeout for a single HTTP request, in seconds.
+_DEFAULT_REQUEST_TIMEOUT_SECONDS: int = 15
+
 @dataclass(frozen=True)
 class RequestUrlConfig:
     delay_between_requests: int
@@ -60,6 +63,9 @@ class Url:
 
     @property
     def value(self):
+        return self._url
+
+    def __str__(self):
         return self._url
 
     @staticmethod
@@ -160,6 +166,16 @@ class RequestUrlInput:
 class RequestUrlUnexpectedError(Error):
     '''Unexpected error when request url'''
 
+def _format_unexpected_errors(errors: tuple[RequestUrlUnexpectedError, ...]) -> str:
+    """
+    Format a tuple of request errors into a single human-readable string.
+
+    Mirrors ``format_value_errors`` from the validation module: individual
+    error messages are joined with a comma separator, so the pipeline core
+    (CompletedWith.Error) receives a single string.
+    """
+    return ", ".join(err.message for err in errors)
+
 class RequestUrlHandler(CustomActionHandler[RequestUrlConfig, list[RequestUrlInput]]):
     @property
     def action_name(self) -> ActionName:
@@ -182,54 +198,125 @@ class RequestUrlHandler(CustomActionHandler[RequestUrlConfig, list[RequestUrlInp
         input_res = traverse_accumulating_with_index(dto_list, validate_input_item)
         return input_res.map_error(format_value_errors)
 
-    async def handle(self, config: RequestUrlConfig, input_list: list[RequestUrlInput]) -> CompletedResult:
-        async def request_data(session: aiohttp.ClientSession, delay_before_request: int, timeout: aiohttp.ClientTimeout, input: RequestUrlInput) -> Result[dict[str, Any], RequestUrlUnexpectedError]:
-            await asyncio.sleep(delay_before_request)
-            try:
-                async with session.request(method=input.http_method, url=input.url.value, headers=input.headers, json=input.json, timeout=timeout) as response:
-                    # bytes = await response.read()
-                    # json = await response.json()
-                    # content_stream = response.content
-                    content = await response.text()
-                    response_data_dict = {
-                        "status_code": response.status,
-                        "content_type": response.content_type,
-                        "content": content
-                    }
-                    response_data_dict = input.data | {
-                        "req. headers": dict(response.request_info.headers),
-                        "resp. headers": dict(response.headers)
-                    } | response_data_dict
-                    return Result.Ok(response_data_dict)
-            except asyncio.TimeoutError:
-                return Result.Error(RequestUrlUnexpectedError(f"Request timeout {timeout.total} seconds"))
-            except aiohttp.client_exceptions.ClientConnectorError:
-                return Result.Error(RequestUrlUnexpectedError(f"Cannot connect to {input.url} ({input.http_method})"))
-            except Exception as ex:
-                return Result.Error(RequestUrlUnexpectedError.from_exception(ex))
+    async def _request_data(
+        self,
+        session: aiohttp.ClientSession,
+        delay_before_request: int,
+        timeout: aiohttp.ClientTimeout,
+        input_item: RequestUrlInput,
+    ) -> Result[dict[str, Any], RequestUrlUnexpectedError]:
+        """
+        Execute a single HTTP request and merge the response into the input data.
+
+        Returns Result.Ok with the merged response dictionary on success,
+        or Result.Error with a domain-specific error on failure.
+        """
+        await asyncio.sleep(delay_before_request)
+        try:
+            async with session.request(
+                method=input_item.http_method,
+                url=input_item.url.value,
+                headers=input_item.headers,
+                json=input_item.json,
+                timeout=timeout,
+            ) as response:
+                content = await response.text()
+                response_data_dict = {
+                    "status_code": response.status,
+                    "content_type": response.content_type,
+                    "content": content,
+                }
+                response_data_dict = (
+                    input_item.data
+                    | {"req. headers": dict(response.request_info.headers)}
+                    | {"resp. headers": dict(response.headers)}
+                    | response_data_dict
+                )
+                return Result.Ok(response_data_dict)
+        except asyncio.TimeoutError:
+            # Domain-specific: the request exceeded the configured timeout.
+            return Result.Error(
+                RequestUrlUnexpectedError(f"Request timeout {timeout.total} seconds")
+            )
+        except aiohttp.client_exceptions.ClientConnectorError:
+            # Domain-specific: the target host is unreachable or refused the connection.
+            return Result.Error(
+                RequestUrlUnexpectedError(
+                    f"Cannot connect to {input_item.url} ({input_item.http_method})"
+                )
+            )
+        except Exception as ex:
+            return Result.Error(RequestUrlUnexpectedError.from_exception(ex))
+
+    def _build_request_tasks(
+        self,
+        session: aiohttp.ClientSession,
+        timeout: aiohttp.ClientTimeout,
+        input_list: list[RequestUrlInput],
+        delay_between_requests: int,
+    ) -> list[Coroutine[Any, Any, Result[dict[str, Any], RequestUrlUnexpectedError]]]:
+        """
+        Build a list of async request coroutines with staggered delays.
+
+        Each subsequent task is scheduled with an additional delay of
+        ``delay_between_requests`` seconds, so requests are spaced out evenly.
+        """
+        tasks: list[Coroutine[Any, Any, Result[dict[str, Any], RequestUrlUnexpectedError]]] = []
+        delay_before_request = 0
+        for input_item in input_list:
+            task = self._request_data(session, delay_before_request, timeout, input_item)
+            tasks.append(task)
+            delay_before_request += delay_between_requests
+        return tasks
+
+    def _aggregate_responses(
+        self,
+        responses_res: list[Result[dict[str, Any], RequestUrlUnexpectedError]],
+    ) -> Result[list[dict[str, Any]], tuple[RequestUrlUnexpectedError, ...]]:
+        """
+        Aggregate individual response results using best-effort semantics.
+
+        If at least one request succeeded, return only the successful responses.
+        If all requests failed, aggregate all errors with element index prefixes.
+        """
+        success_responses = to_ok_list(*responses_res)
+        match success_responses:
+            case []:
+                # All requests failed: collect every error with its position.
+                responses_res_iter = (
+                    response_res.map_error(
+                        lambda err: RequestUrlUnexpectedError(f"[{idx}]: {err.message}")
+                    )
+                    for idx, response_res in enumerate(responses_res)
+                )
+                return sequence_accumulating(responses_res_iter)
+            case _:
+                # At least one request succeeded: return successful responses only.
+                return Result.Ok(success_responses)
+
+    async def handle(
+        self, config: RequestUrlConfig, input_list: list[RequestUrlInput]
+    ) -> CompletedResult:
+        # --- Step 1: Prepare session configuration ---
+        timeout = aiohttp.ClientTimeout(total=_DEFAULT_REQUEST_TIMEOUT_SECONDS)
+
+        # --- Step 2: Execute parallel HTTP requests with staggered delays ---
+        async with aiohttp.ClientSession() as session:
+            tasks = self._build_request_tasks(
+                session, timeout, input_list, config.delay_between_requests
+            )
+            responses_res = await asyncio.gather(*tasks)
+
+        # --- Step 3: Aggregate responses using best-effort semantics ---
+        aggregated_res = self._aggregate_responses(responses_res).map_error(
+            _format_unexpected_errors
+        )
+
+        # --- Step 4: Convert the aggregated result into a CompletedResult ---
         def ok_to_completed_result(result_list: list[DataDto]) -> CompletedResult:
             return CompletedWith.Data(result_list)
-        def err_to_completed_result(err: Any) -> CompletedResult:
-            return CompletedWith.Error(str(err))
-        
-        tasks: list[Coroutine[Any, Any, Result[dict[str, Any], RequestUrlUnexpectedError]]] = []
-        async with aiohttp.ClientSession() as session:
-            timeout_15_seconds = aiohttp.ClientTimeout(total=15)
-            delay_before_request = 0
-            for input in input_list:
-                task = request_data(session, delay_before_request, timeout_15_seconds, input)
-                tasks.append(task)
-                delay_before_request += config.delay_between_requests
-            responses_res = await asyncio.gather(*tasks)
-            success_responses = to_ok_list(*responses_res)
-            match success_responses:
-                case []:
-                    responses_res_iter = (
-                        response_res.map_error(lambda err: RequestUrlUnexpectedError(f"[{idx}]: {err.message}"))
-                        for idx, response_res
-                        in enumerate(responses_res)
-                    )
-                    res = sequence_accumulating(responses_res_iter)
-                    return res.map(ok_to_completed_result).default_with(err_to_completed_result)
-                case _:
-                    return ok_to_completed_result(success_responses)
+
+        def err_to_completed_result(err: str) -> CompletedResult:
+            return CompletedWith.Error(err)
+
+        return aggregated_res.map(ok_to_completed_result).default_with(err_to_completed_result)
