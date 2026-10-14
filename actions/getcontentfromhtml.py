@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 import functools
-from typing import Any, NamedTuple
+from typing import Any
 
 from expression import Result
 from parsel import Selector
@@ -10,13 +10,10 @@ from shared.completedresult import CompletedResult, CompletedWith
 from shared.customtypes import Error
 from shared.pipeline.actionhandler import DataDto
 from shared.utils.exceptiondecorators import ex_to_error_result
-from shared.utils.parse import parse_bool_str, parse_from_dict, parse_non_empty_str
+from shared.utils.parse import DefaultValue, parse_bool_str, parse_from_dict, parse_non_empty_str, parse_optional_default_value
 from shared.utils.result import apply
 
 from customactionhandler import CustomActionHandler
-
-class DefaultValueConfig(NamedTuple):
-    value: Any
 
 class GetContentFromHtmlConfigSelector:
     class CssSelector:
@@ -37,7 +34,7 @@ class GetContentFromHtmlConfigSelector:
         def process_content(self, content) -> list[str]:
             return Selector(text=content).xpath(self._xpath).getall()
 
-    def __init__(self, selector: CssSelector | RegexSelector | XPathSelector, output_name: str | None, default_value: DefaultValueConfig | None):
+    def __init__(self, selector: CssSelector | RegexSelector | XPathSelector, output_name: str | None, default_value: DefaultValue | None):
         self._selector = selector
         self._output_name = output_name
         self._default_value = default_value
@@ -70,15 +67,10 @@ class GetContentFromHtmlConfigSelector:
             if "output_name" not in data:
                 return Result.Ok(None)
             return parse_from_dict(data, "output_name", parse_non_empty_str)
-        def get_default_value():
-            if "default_value" not in data:
-                return None
-            return DefaultValueConfig(data["default_value"])
-        
         selector_res = validate_css_selector() or validate_regex_selector() or validate_xpath_selector() \
             or Result[GetContentFromHtmlConfigSelector.CssSelector, str].Error("css, regex or xpath selector is missing")
         output_name_res = validate_output_name()
-        opt_default_value = get_default_value()
+        opt_default_value = parse_optional_default_value(data)
         config_res = apply(lambda selector, output_name: GetContentFromHtmlConfigSelector(selector, output_name, opt_default_value), ", ".join, selector_res, output_name_res)
         return config_res
 

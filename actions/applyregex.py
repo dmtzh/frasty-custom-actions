@@ -10,22 +10,10 @@ from shared.completedresult import CompletedResult, CompletedWith
 from shared.customtypes import Error
 from shared.pipeline.actionhandler import DataDto
 from shared.utils.exceptiondecorators import ex_to_error_result
-from shared.utils.parse import parse_bool_str, parse_from_dict, parse_value, NonEmptyStr
+from shared.utils.parse import DefaultValue, NonEmptyStr, parse_bool_str, parse_from_dict, parse_optional_default_value, parse_value
 from shared.utils.result import apply4
 
 from customactionhandler import CustomActionHandler
-
-@dataclass(frozen=True)
-class DefaultValue:
-    """
-    Sentinel wrapper that distinguishes "default value is not specified" (None)
-    from "default value is explicitly set to None" (DefaultValue(None)).
-
-    This is a local copy of the pattern used in FetchDataConfig.
-    The value is NOT cloned when substituted into DataDto — mutable values
-    (dict, list) will be shared by reference across all DataDto elements.
-    """
-    value: Any
 
 @dataclass(frozen=True)
 class ApplyRegexConfig:
@@ -50,10 +38,6 @@ class ApplyRegexConfig:
         # --- Optional: default_value (sentinel via DefaultValue | None) ---
         # Key absence -> None (field will NOT be added on empty match).
         # Key presence (even with null value) -> DefaultValue(value).
-        def get_default_value() -> DefaultValue | None:
-            if "default_value" not in data:
-                return None
-            return DefaultValue(data["default_value"])
         def validate_return_empty_result() -> Result[bool, str]:
             if "return_empty_result" not in data:
                 return Result.Ok(False)
@@ -61,7 +45,7 @@ class ApplyRegexConfig:
 
         field_name_res = validate_field_name()
         expression_res = validate_expression()
-        opt_default_value_res: Result[DefaultValue | None, str] = Result.Ok(get_default_value())
+        opt_default_value_res: Result[DefaultValue | None, str] = Result.Ok(parse_optional_default_value(data))
         return_empty_result_res = validate_return_empty_result()
 
         # Combine all results

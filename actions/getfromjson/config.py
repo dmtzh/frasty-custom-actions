@@ -1,11 +1,11 @@
 from dataclasses import dataclass
 from enum import StrEnum
 import functools
-from typing import Any, NamedTuple, Optional
+from typing import Any, Optional
 
 from expression import Result
 
-from shared.utils.parse import NonEmptyStr, parse_bool_str, parse_dict_field
+from shared.utils.parse import DefaultValue, NonEmptyStr, parse_bool_str, parse_dict_field, parse_optional_default_value
 from shared.utils.result import apply, apply4, traverse_accumulating_with_index
 from shared.utils.string import strip_and_lowercase
 from shared.validation import ValueError as ValueErr, ValueInvalid, with_prefix
@@ -50,17 +50,13 @@ class Parser(StrEnum):
                 return None
 
 
-class DefaultValueConfig(NamedTuple):
-    value: Any
-
-
 @dataclass(frozen=True)
 class GetFromJsonQuery:
     """Query operation configuration."""
 
     query: NonEmptyStr
     output_name: NonEmptyStr | None
-    default_value: DefaultValueConfig | None
+    default_value: DefaultValue | None
     mode: Mode
 
     @staticmethod
@@ -73,11 +69,6 @@ class GetFromJsonQuery:
                 return Result.Ok(None)
             return parse_dict_field(data, "output_name", NonEmptyStr.parse)
 
-        def get_default_value() -> DefaultValueConfig | None:
-            if "default_value" not in data:
-                return None
-            return DefaultValueConfig(data["default_value"])
-
         def validate_mode() -> Result[Mode, ValueErr]:
             if "mode" not in data:
                 return Result.Ok(Mode.SINGLE)
@@ -85,7 +76,7 @@ class GetFromJsonQuery:
 
         query_res = validate_query()
         output_name_res = validate_output_name()
-        opt_default_value = get_default_value()
+        opt_default_value = parse_optional_default_value(data)
         mode_res = validate_mode()
 
         config_res = apply4(

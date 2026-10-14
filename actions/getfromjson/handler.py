@@ -16,7 +16,7 @@ from shared.validation import format_value_errors
 
 from customactionhandler import CustomActionHandler
 
-from .config import DefaultValueConfig, GetFromJsonFilter, GetFromJsonQuery, Operation, GetFromJsonConfig, GetFromJsonOperationConfig, Parser, Mode
+from .config import DefaultValue, GetFromJsonFilter, GetFromJsonQuery, Operation, GetFromJsonConfig, GetFromJsonOperationConfig, Parser, Mode
 
 type GetFromJsonInput = list[DataDto]
 type OperationHandlerFunc = Callable[[list, GetFromJsonOperationConfig], Result[list, Error]]
@@ -26,7 +26,7 @@ def jsonpath_ng_query_handler(input_list, operation: GetFromJsonOperationConfig)
     assert isinstance(operation.data, GetFromJsonQuery), \
         f"Invariant violation: expected GetFromJsonQuery for QUERY operation, got {type(operation.data).__name__}"
     data = operation.data
-    def match_value_to_result(match_value, default_value: DefaultValueConfig | None):
+    def match_value_to_result(match_value, default_value: DefaultValue | None):
         match match_value:
             case None if default_value is not None:
                 return default_value.value
