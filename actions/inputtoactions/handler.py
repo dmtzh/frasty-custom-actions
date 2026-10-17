@@ -12,7 +12,7 @@ from shared.customtypes import DefinitionIdValue
 from shared.definition import DefinitionAdapter
 from shared.pipeline.actionhandler import DataDto
 from shared.utils.result import apply
-from shared.validation import ValueMissing
+from shared.validation import ValueMissing, format_value_errors
 
 from customactionhandler import CustomActionHandler
 
@@ -39,7 +39,7 @@ class InputToActionsHandler(CustomActionHandler[InputToActionsConfig, InputToAct
         return ActionName("inputtoactions")
 
     def validate_config(self, raw_config: dict[str, Any]) -> Result[InputToActionsConfig, Any]:
-        return InputToActionsConfig.from_dict(raw_config)
+        return InputToActionsConfig.from_dict(raw_config).map_error(format_value_errors)
 
     def validate_input(self, _: InputToActionsConfig, dto_list: list[DataDto]) -> Result[InputToActionsInput, Any]:
         if not dto_list:
