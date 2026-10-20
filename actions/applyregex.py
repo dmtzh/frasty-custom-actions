@@ -10,8 +10,10 @@ from shared.completedresult import CompletedResult, CompletedWith
 from shared.customtypes import Error
 from shared.pipeline.actionhandler import DataDto
 from shared.utils.exceptiondecorators import ex_to_error_result
-from shared.utils.parse import DefaultValue, NonEmptyStr, parse_bool_str, parse_from_dict, parse_optional_default_value, parse_value
+from shared.utils.parse import DefaultValue, NonEmptyStr, parse_bool_str, parse_dict_field, parse_optional_default_value, parse_val
 from shared.utils.result import apply4
+from shared.validation import ValueError as ValueErr, format_value_errors
+
 
 from customactionhandler import CustomActionHandler
 
@@ -23,33 +25,32 @@ class ApplyRegexConfig:
     return_empty_result: bool
 
     @staticmethod
-    def from_dict(data: dict[str, Any]) -> Result['ApplyRegexConfig', str]:
-        def validate_field_name() -> Result[NonEmptyStr, str]:
-            return parse_from_dict(data, "field_name", NonEmptyStr.parse)
-        def validate_expression() -> Result[re.Pattern[str], str]:
+    def from_dict(data: dict[str, Any]) -> Result['ApplyRegexConfig', tuple[ValueErr, ...]]:
+        def validate_field_name() -> Result[NonEmptyStr, ValueErr]:
+            return parse_dict_field(data, "field_name", NonEmptyStr.parse)
+
+        def validate_expression() -> Result[re.Pattern[str], ValueErr]:
             def compile_regex(expr: NonEmptyStr) -> re.Pattern[str] | None:
                 try:
                     return re.compile(expr)
                 except re.error:
                     return None
-            raw_expression_res = parse_from_dict(data, "expression", NonEmptyStr.parse)
-            expression_res = raw_expression_res.bind(lambda raw_expr: parse_value(raw_expr, "expression", compile_regex))
+
+            raw_expression_res = parse_dict_field(data, "expression", NonEmptyStr.parse)
+            expression_res = raw_expression_res.bind(lambda raw_expr: parse_val(raw_expr, "expression", compile_regex))
             return expression_res
-        # --- Optional: default_value (sentinel via DefaultValue | None) ---
-        # Key absence -> None (field will NOT be added on empty match).
-        # Key presence (even with null value) -> DefaultValue(value).
-        def validate_return_empty_result() -> Result[bool, str]:
+
+        def validate_return_empty_result() -> Result[bool, ValueErr]:
             if "return_empty_result" not in data:
                 return Result.Ok(False)
-            return parse_from_dict(data, "return_empty_result", parse_bool_str)
+            return parse_dict_field(data, "return_empty_result", parse_bool_str)
 
         field_name_res = validate_field_name()
         expression_res = validate_expression()
-        opt_default_value_res: Result[DefaultValue | None, str] = Result.Ok(parse_optional_default_value(data))
+        opt_default_value_res: Result[DefaultValue | None, ValueErr] = Result.Ok(parse_optional_default_value(data))
         return_empty_result_res = validate_return_empty_result()
 
-        # Combine all results
-        return apply4(ApplyRegexConfig, ", ".join, field_name_res, expression_res, opt_default_value_res, return_empty_result_res)
+        return apply4(ApplyRegexConfig, lambda err: err, field_name_res, expression_res, opt_default_value_res, return_empty_result_res)
 
 type ApplyRegexInput = list[DataDto]
 
@@ -59,7 +60,7 @@ class ApplyRegexHandler(CustomActionHandler[ApplyRegexConfig, ApplyRegexInput]):
         return ActionName("applyregex")
     
     def validate_config(self, raw_config: dict[str, Any]) -> Result[ApplyRegexConfig, Any]:
-        return ApplyRegexConfig.from_dict(raw_config)
+        return ApplyRegexConfig.from_dict(raw_config).map_error(format_value_errors)
     
     def validate_input(self, _: ApplyRegexConfig, dto_list: list[DataDto]) -> Result[ApplyRegexInput, Any]:
         return Result.Ok(dto_list)
