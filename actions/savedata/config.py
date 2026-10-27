@@ -42,10 +42,13 @@ class WriteMode(StrEnum):
     REPLACE - Overwrite existing data completely (default).
     APPEND  - Append new data to the end of existing list. Non-list values are wrapped in a list.
     PREPEND - Prepend new data to the beginning of existing list. Non-list values are wrapped in a list.
+    PREPEND_NEW - Prepend only NEW items (not already present in current data) to the beginning.
+                  Non-list values are wrapped in a list. Deduplication uses equality comparison.
     """
     REPLACE = "replace"
     APPEND = "append"
     PREPEND = "prepend"
+    PREPEND_NEW = "prepend_new"
 
     @staticmethod
     def parse(value: str) -> Optional["WriteMode"]:
@@ -65,6 +68,8 @@ class WriteMode(StrEnum):
                 return WriteMode.APPEND
             case WriteMode.PREPEND.value:
                 return WriteMode.PREPEND
+            case WriteMode.PREPEND_NEW.value:
+                return WriteMode.PREPEND_NEW
             case _:
                 return None
 

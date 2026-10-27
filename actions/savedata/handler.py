@@ -75,12 +75,41 @@ def _ensure_list(value: Any) -> list:
             return [value]
 
 
+def _get_unique_items(new_items: list, current_items: list) -> list:
+    """
+    Return items from new_items that are not already present in current_items.
+
+    Uses equality comparison (==) for deduplication.
+    Preserves the original order of new_items.
+
+    Args:
+        new_items: List of candidate items to add.
+        current_items: List of existing items to check against.
+
+    Returns:
+        List of items from new_items that are not in current_items.
+
+    Examples:
+        >>> _get_unique_items([1, 2, 3], [2, 4])
+        [1, 3]
+        >>> _get_unique_items(["a", "b", "c"], ["b", "c"])
+        ["a"]
+        >>> _get_unique_items([{"id": 1}, {"id": 2}], [{"id": 1}])
+        [{"id": 2}]
+    """
+    return [item for item in new_items if item not in current_items]
+
+
 def _create_set_data_func(write_mode: WriteMode) -> SetDataFunc:
     """
     Create a SetDataFunc based on the configured write mode.
     REPLACE: ignores current state, returns new data as-is.
     APPEND:  concatenates [current + new], wrapping non-lists via _ensure_list.
     PREPEND: concatenates [new + current], wrapping non-lists via _ensure_list.
+    PREPEND_NEW: concatenates [unique_new + current], where unique_new contains
+                 only items from new that are not already present in current.
+                 Non-list values are wrapped in a list. Deduplication uses
+                 equality comparison.
     """
     match write_mode:
         case WriteMode.REPLACE:
@@ -93,6 +122,13 @@ def _create_set_data_func(write_mode: WriteMode) -> SetDataFunc:
             def prepend_func(current: Any | None, new: Any) -> tuple[None, Any]:
                 return (None, _ensure_list(new) + _ensure_list(current))
             return prepend_func
+        case WriteMode.PREPEND_NEW:
+            def prepend_new_func(current: Any | None, new: Any) -> tuple[None, Any]:
+                current_list = _ensure_list(current)
+                new_list = _ensure_list(new)
+                unique_new = _get_unique_items(new_list, current_list)
+                return (None, unique_new + current_list)
+            return prepend_new_func
 
 
 class SaveDataHandler(RegistrableCustomActionHandler[SaveDataConfig, SaveDataInput]):
@@ -107,7 +143,12 @@ class SaveDataHandler(RegistrableCustomActionHandler[SaveDataConfig, SaveDataInp
     Each variant contains only semantically relevant fields. No conditional
     fields or runtime asserts needed — type system guarantees field availability.
 
-    Supports three write modes (REPLACE, APPEND, PREPEND) across all variants.
+    Supports four write modes:
+    - REPLACE: Overwrite existing data completely (default).
+    - APPEND: Append new data to the end of existing list.
+    - PREPEND: Prepend new data to the beginning of existing list.
+    - PREPEND_NEW: Prepend only NEW items (not already in current) to the beginning.
+
     Saves in parallel via asyncio.gather (best-effort mode).
     On success, returns the original (non-deduplicated) input_list.
     Empty input_list skips the storage call entirely.
