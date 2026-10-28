@@ -11,8 +11,14 @@ from shared.completedresult import CompletedWith, CompletedResult
 from shared.customtypes import DefinitionIdValue
 from shared.definition import DefinitionAdapter
 from shared.pipeline.actionhandler import DataDto
-from shared.utils.result import apply
-from shared.validation import ValueMissing, format_value_errors
+from shared.utils.result import apply, traverse_accumulating_with_index
+from shared.validation import (
+    ValueMissing,
+    ValueInvalid,
+    ValueError as ValueErr,
+    with_prefix,
+    format_value_errors
+)
 
 from customactionhandler import CustomActionHandler
 
@@ -41,10 +47,29 @@ class InputToActionsHandler(CustomActionHandler[InputToActionsConfig, InputToAct
     def validate_config(self, raw_config: dict[str, Any]) -> Result[InputToActionsConfig, Any]:
         return InputToActionsConfig.from_dict(raw_config).map_error(format_value_errors)
 
-    def validate_input(self, _: InputToActionsConfig, dto_list: list[DataDto]) -> Result[InputToActionsInput, Any]:
+    def validate_input(
+        self, _: InputToActionsConfig, dto_list: list[DataDto]
+    ) -> Result[InputToActionsInput, Any]:
+        """
+        Fail-Fast validation of input data.
+
+        Validates that input list is non-empty and each element is a dict (DataDto).
+        All errors include element index via with_prefix for precise error location.
+        """
         if not dto_list:
-            return Result.Error(ValueMissing("input_data"))
-        return Result.Ok(dto_list)
+            return Result.Error(format_value_errors((ValueMissing("input_data"),)))
+
+        def validate_item(dto: Any) -> Result[None, tuple[ValueErr, ...]]:
+            if isinstance(dto, dict):
+                return Result.Ok(None)
+            return Result.Error((ValueInvalid("item", dto),))
+
+        prefixed_validator = lambda idx, dto: validate_item(dto) \
+            .map_error(functools.partial(with_prefix, f"input_data[{idx}]"))
+
+        return traverse_accumulating_with_index(dto_list, prefixed_validator) \
+            .map(lambda _: dto_list) \
+            .map_error(format_value_errors)
 
     async def handle(self, config: InputToActionsConfig, input: InputToActionsInput) -> CompletedResult:
         def resolve_input_to_actions(
