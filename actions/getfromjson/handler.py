@@ -120,6 +120,10 @@ class JmespathCustomFunctions(functions.Functions):
     def _func_index_array(self, array):
         return [{**item, "index": index} for index, item in enumerate(array)]
 
+    @functions.signature({'types': ['array']}, {'types': ['number']})
+    def _func_chunk(self, array, size):
+        return [array[i:i + size] for i in range(0, len(array), size)]
+
 @ex_to_error_result(Error.from_exception)
 def jmespath_query_handler(input_list, operation: GetFromJsonOperationConfig) -> list:
     assert isinstance(operation.data, GetFromJsonQuery), \
