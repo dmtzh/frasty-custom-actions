@@ -1,10 +1,11 @@
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from enum import StrEnum
+import functools
 from typing import Any, Optional
 
-from expression import Result
 
+from expression import Result
 from shared.action import ActionName
 from shared.completedresult import CompletedResult, CompletedWith
 from shared.customtypes import Error
@@ -12,34 +13,34 @@ from shared.infrastructure.storage.repository import StorageError
 from shared.pipeline.actionhandler import DataDto
 from shared.utils.asyncresult import async_result, AsyncResult, coroutine_result
 from shared.utils.exceptiondecorators import async_ex_to_error_result
-from shared.utils.parse import parse_from_dict, NonEmptyStr
+from shared.utils.parse import parse_dict_field, NonEmptyStr
 from shared.utils.result import apply3, traverse_accumulating_with_index
 from shared.utils.string import strip_and_lowercase
-from shared.validation import ValueInvalid
+from shared.validation import ValueError as ValueErr, ValueInvalid, format_value_errors
 
 from customactionhandler import CustomActionHandler
 
 from .previousdatastore import PreviousDataStore
-from .projection import ProjectionError, ProjectionResolver, create_projection_resolver
+from .projection import ProjectionResolver, create_projection_resolver
 
 class CompareTo(StrEnum):
-    ALL = "ALL"
-    LAST = "LAST"
-    ALL_READONLY = "ALL_READONLY"
-    LAST_READONLY = "LAST_READONLY"
+    ALL = "all"
+    LAST = "last"
+    ALL_READONLY = "all_readonly"
+    LAST_READONLY = "last_readonly"
 
     @staticmethod
     def parse(compare_to: str) -> Optional['CompareTo']:
         if compare_to is None:
             return None
         match strip_and_lowercase(compare_to):
-            case "all":
+            case CompareTo.ALL.value:
                 return CompareTo.ALL
-            case "last":
+            case CompareTo.LAST.value:
                 return CompareTo.LAST
-            case "all_readonly":
+            case CompareTo.ALL_READONLY.value:
                 return CompareTo.ALL_READONLY
-            case "last_readonly":
+            case CompareTo.LAST_READONLY.value:
                 return CompareTo.LAST_READONLY
             case _:
                 return None
@@ -51,27 +52,41 @@ class FilterNewDataConfig:
     resolver: ProjectionResolver
 
     @staticmethod
-    def from_dict(data: dict[str, Any]) -> Result['FilterNewDataConfig', str]:
-        def validate_set_name() -> Result[NonEmptyStr, str]:
-            return parse_from_dict(data, "set_name", NonEmptyStr.parse)
+    def from_dict(data: dict[str, Any]) -> Result['FilterNewDataConfig', tuple[ValueErr, ...]]:
+        def validate_set_name() -> Result[NonEmptyStr, ValueErr]:
+            return parse_dict_field(data, "set_name", NonEmptyStr.parse)
 
-        def validate_compare_to() -> Result[CompareTo, str]:
+        def validate_compare_to() -> Result[CompareTo, ValueErr]:
+            # Optional field: default to ALL if not provided
             if "compare_to" not in data:
                 return Result.Ok(CompareTo.ALL)
-            return parse_from_dict(data, "compare_to", CompareTo.parse)
+            # Safe parser: guards against non-string values that would cause
+            # AttributeError in strip_and_lowercase() called by CompareTo.parse
+            def safe_compare_to_parse(value: Any) -> CompareTo | None:
+                if not isinstance(value, str):
+                    return None
+                return CompareTo.parse(value)
+            return parse_dict_field(data, "compare_to", safe_compare_to_parse)
 
-        def validate_projection() -> Result[ProjectionResolver, str]:
+        def validate_projection() -> Result[ProjectionResolver, ValueErr]:
+            def create_projection_resolver_wrapper(projection: NonEmptyStr | None):
+                # ProjectionError is mapped to ValueInvalid for consistency
+                return create_projection_resolver(projection)\
+                    .map_error(functools.partial(ValueInvalid, "projection"))
+            # Optional field: default to identity resolver if not provided
             if "projection" not in data:
-                return create_projection_resolver(None).map_error(lambda err: err.message)
-            projection_res = parse_from_dict(data, "projection", NonEmptyStr.parse).map_error(ProjectionError)
-            resolver_res = projection_res.bind(create_projection_resolver)
-            return resolver_res.map_error(lambda err: err.message)
+                return create_projection_resolver_wrapper(None)
+            # Step 1: validate as NonEmptyStr (presence, type, non-empty)
+            non_empty_res = parse_dict_field(data, "projection", NonEmptyStr.parse)
+            # Step 2: compile JMESPath expression via create_projection_resolver
+            resolver_res = non_empty_res.bind(lambda ne_str: create_projection_resolver_wrapper(ne_str))
+            return resolver_res
 
         set_name_res = validate_set_name()
         compare_to_res = validate_compare_to()
         resolver_res = validate_projection()
         
-        config_res = apply3(FilterNewDataConfig, ", ".join, set_name_res, compare_to_res, resolver_res)
+        config_res = apply3(FilterNewDataConfig, lambda errs: errs, set_name_res, compare_to_res, resolver_res)
         return config_res
 
 type FilterNewDataInput = list[ProjectedDataDto]
@@ -103,14 +118,14 @@ class FilterNewDataHandler(CustomActionHandler[FilterNewDataConfig, FilterNewDat
         return ActionName("filternewdata")
     
     def validate_config(self, raw_config: dict[str, Any]) -> Result[FilterNewDataConfig, Any]:
-        return FilterNewDataConfig.from_dict(raw_config)
+        return FilterNewDataConfig.from_dict(raw_config).map_error(format_value_errors)
     
     def validate_input(self, config: FilterNewDataConfig, dto_list: list[DataDto]) -> Result[FilterNewDataInput, Any]:
         # convert input to projected input
         def dto_to_projected_dto(idx: int, dto: DataDto):
             return config.resolver.apply(dto)\
                 .map(lambda projection: ProjectedDataDto(dto, projection))\
-                .map_error(lambda err: ProjectionError(f"input_data[{idx}]: {err.message}"))
+                .map_error(functools.partial(ValueInvalid, f"input_data[{idx}]"))
 
         projected_input_res = traverse_accumulating_with_index(dto_list, dto_to_projected_dto)
         return projected_input_res
