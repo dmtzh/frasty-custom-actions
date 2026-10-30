@@ -4,6 +4,7 @@ from typing import Any
 
 from expression import Result
 import jmespath
+from jmespath import exceptions
 from jmespath import functions
 import jsonpath_ng.ext as jpx
 
@@ -101,19 +102,17 @@ class JmespathCustomFunctions(functions.Functions):
     def _func_add_num(self, a, b):
         return a + b
 
-    @functions.signature({'types': ['array']}, {'types': ['string']})
-    def _func_group_by(self, arr, key):
+    @functions.signature({'types': ['array']}, {'types': ['expref']})
+    def _func_group_by(self, arr, expref):
+        if not arr:
+            return []
+        keyfunc = self._create_key_func(expref, ['number', 'string'], 'group_by')
         groups = {}
         for item in arr:
-            if not isinstance(item, dict):
-                continue
-            group_key = item.get(key)
-            if group_key is None:
-                continue
-            str_key = str(group_key)
-            if str_key not in groups:
-                groups[str_key] = []
-            groups[str_key].append(item)
+            group_key = keyfunc(item)
+            if group_key not in groups:
+                groups[group_key] = []
+            groups[group_key].append(item)
         return [{"key": k, "value": v} for k, v in groups.items()]
 
     @functions.signature({'types': ['array-object']})
@@ -123,6 +122,18 @@ class JmespathCustomFunctions(functions.Functions):
     @functions.signature({'types': ['array']}, {'types': ['number']})
     def _func_chunk(self, array, size):
         return [array[i:i + size] for i in range(0, len(array), size)]
+
+    def _create_key_func(self, expref, allowed_types, function_name):
+        def keyfunc(x):
+            result = expref.visit(expref.expression, x)
+            actual_typename = type(result).__name__
+            jmespath_type = functions.TYPES_MAP.get(actual_typename, 'unknown')
+            # allowed_types is in term of jmespath types, not python types.
+            if jmespath_type not in allowed_types:
+                raise exceptions.JMESPathTypeError(
+                    function_name, result, jmespath_type, allowed_types)
+            return result
+        return keyfunc
 
 @ex_to_error_result(Error.from_exception)
 def jmespath_query_handler(input_list, operation: GetFromJsonOperationConfig) -> list:
