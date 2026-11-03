@@ -70,8 +70,13 @@ class JmespathCustomFunctions(functions.Functions):
     def _func_mod(self, a, b):
         return a % b
 
+    @functions.signature({'types': ['array']}, {'types': ['number']})
+    def _func_slice(self, arr, start):
+        expression = f"[{start}:]"
+        return jmespath.search(expression, arr)
+
     @functions.signature({'types': ['array']}, {'types': ['number']}, {'types': ['number']})
-    def _func_slice(self, arr, start, end):
+    def _func_slice_range(self, arr, start, end):
         expression = f"[{start}:{end}]"
         return jmespath.search(expression, arr)
 
