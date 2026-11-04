@@ -10,13 +10,14 @@ from shared.completedresult import CompletedResult, CompletedWith
 from shared.customtypes import Error
 from shared.pipeline.actionhandler import DataDto
 from shared.utils.exceptiondecorators import ex_to_error_result
-from shared.utils.parse import parse_from_dict, parse_non_empty_str
+from shared.utils.parse import NonEmptyStr, parse_dict_field
 from shared.utils.result import apply
+from shared.validation import format_value_errors, ValueError as ValueErr
 
 from customactionhandler import CustomActionHandler
 
 @ex_to_error_result(Error.from_exception)
-def _normalize_text(input_dict: DataDto, field_name: str) -> DataDto:
+def _normalize_text(input_dict: DataDto, field_name: NonEmptyStr) -> DataDto:
     """
     Normalizes the value of a specific field in a dictionary by cleaning HTML tags 
     and whitespace, according to the defined architectural specifications.
@@ -96,14 +97,12 @@ def _normalize_text(input_dict: DataDto, field_name: str) -> DataDto:
 
 @dataclass(frozen=True)
 class NormalizeTextConfig:
-    field_name: str
+    field_name: NonEmptyStr
 
     @staticmethod
-    def from_dict(data: dict[str, Any]):
-        def validate_field_name() -> Result[str, str]:
-            return parse_from_dict(data, "field_name", parse_non_empty_str)
-        field_name_res = validate_field_name()
-        return field_name_res.map(NormalizeTextConfig)
+    def from_dict(data: dict[str, Any]) -> Result["NormalizeTextConfig", tuple[ValueErr, ...]]:
+        field_name_res = parse_dict_field(data, "field_name", NonEmptyStr.parse)
+        return field_name_res.map(NormalizeTextConfig).map_error(lambda err: tuple([err]))
 
 type NormalizeTextInput = list[DataDto]
 
@@ -113,7 +112,7 @@ class NormalizeTextHandler(CustomActionHandler[NormalizeTextConfig, NormalizeTex
         return ActionName("normalizetext")
     
     def validate_config(self, raw_config: dict[str, Any]) -> Result[NormalizeTextConfig, Any]:
-        return NormalizeTextConfig.from_dict(raw_config)
+        return NormalizeTextConfig.from_dict(raw_config).map_error(format_value_errors)
     
     def validate_input(self, _: NormalizeTextConfig, dto_list: list[DataDto]) -> Result[NormalizeTextInput, Any]:
         return Result.Ok(dto_list)
