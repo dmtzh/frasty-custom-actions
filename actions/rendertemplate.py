@@ -13,9 +13,10 @@ from shared.completedresult import CompletedResult, CompletedWith
 from shared.customtypes import Error
 from shared.pipeline.actionhandler import DataDto
 from shared.utils.exceptiondecorators import ex_to_error_result
-from shared.utils.parse import parse_bool_str, parse_from_dict, parse_non_empty_str
+from shared.utils.parse import NonEmptyStr, parse_bool_str, parse_dict_field
 from shared.utils.result import apply, apply4
 from shared.utils.string import strip_and_lowercase
+from shared.validation import format_value_errors, ValueError as ValueErr
 from customactionhandler import CustomActionHandler
 
 
@@ -170,34 +171,31 @@ def _render_template(input_dict: DataDto, config: 'RenderTemplateConfig') -> Dat
 @dataclass(frozen=True)
 class RenderTemplateConfig:
     """Configuration for the RenderTemplateHandler."""
-    field_name: str
+    field_name: NonEmptyStr
     on_missing: MissingKeyStrategy
     global_variables: dict[str, Any] | None
     return_empty_result: bool
 
     @staticmethod
-    def from_dict(data: dict[str, Any]) -> Result['RenderTemplateConfig', str]:
+    def from_dict(data: dict[str, Any]) -> Result['RenderTemplateConfig', tuple[ValueErr, ...]]:
         """Parse and validate configuration from a dictionary."""
-        def validate_field_name() -> Result[str, str]:
+        def validate_field_name() -> Result[NonEmptyStr, ValueErr]:
             if "field_name" not in data:
-                return Result.Ok("content")
-            return parse_from_dict(data, "field_name", parse_non_empty_str)
+                return Result.Ok(NonEmptyStr("content"))
+            return parse_dict_field(data, "field_name", NonEmptyStr.parse)
 
-        def validate_on_missing() -> Result[MissingKeyStrategy, str]:
-            return parse_from_dict(data, "on_missing", MissingKeyStrategy.parse)
+        def validate_on_missing() -> Result[MissingKeyStrategy, ValueErr]:
+            return parse_dict_field(data, "on_missing", MissingKeyStrategy.parse)
 
-        def validate_global_variables() -> Result[dict[str, Any] | None, str]:
+        def validate_global_variables() -> Result[dict[str, Any] | None, ValueErr]:
             if "global_variables" not in data:
                 return Result.Ok(None)
-            raw = data["global_variables"]
-            if not isinstance(raw, dict):
-                return Result.Error("invalid 'global_variables' value")
-            return Result.Ok(raw)
+            return parse_dict_field(data, "global_variables", lambda raw: raw if isinstance(raw, dict) else None)
 
-        def validate_return_empty_result() -> Result[bool, str]:
+        def validate_return_empty_result() -> Result[bool, ValueErr]:
             if "return_empty_result" not in data:
                 return Result.Ok(False)
-            return parse_from_dict(data, "return_empty_result", parse_bool_str)
+            return parse_dict_field(data, "return_empty_result", parse_bool_str)
 
         field_name_res = validate_field_name()
         on_missing_res = validate_on_missing()
@@ -205,7 +203,8 @@ class RenderTemplateConfig:
         return_empty_result_res = validate_return_empty_result()
 
         # Combine all results
-        return apply4(RenderTemplateConfig, ", ".join, field_name_res, on_missing_res, global_variables_res, return_empty_result_res)
+        config_res = apply4(RenderTemplateConfig, lambda errs: errs, field_name_res, on_missing_res, global_variables_res, return_empty_result_res)
+        return config_res
 
 type RenderTemplateInput = list[DataDto]
 
@@ -220,7 +219,7 @@ class RenderTemplateHandler(CustomActionHandler[RenderTemplateConfig, RenderTemp
         return ActionName("rendertemplate")
 
     def validate_config(self, raw_config: dict[str, Any]) -> Result[RenderTemplateConfig, Any]:
-        return RenderTemplateConfig.from_dict(raw_config)
+        return RenderTemplateConfig.from_dict(raw_config).map_error(format_value_errors)
 
     def validate_input(self, _: RenderTemplateConfig, dto_list: list[DataDto]) -> Result[RenderTemplateInput, Any]:
         return Result.Ok(dto_list)
