@@ -1,14 +1,14 @@
-from collections.abc import Generator
 from dataclasses import dataclass
 import os
-from typing import Any
 
-from expression import Result, effect
+from expression import Result
 
 from infrastructure.persistence.filesystem.filewithversion import FileWithVersion
 from shared.customtypes import IdValue
 from shared.infrastructure.serialization.json import JsonSerializer
-from shared.utils.parse import parse_from_dict, parse_non_empty_str
+from shared.utils.parse import NonEmptyStr, parse_dict_field
+from shared.utils.result import apply
+from shared.validation import ValueError as ValueErr
 
 type ItemType = ViberChannel
 type DtoItemType = dict[str, str]
@@ -18,23 +18,21 @@ class ViberChannelIdValue(IdValue):
 
 @dataclass(frozen=True)
 class ViberChannel:
-    auth_token: str
-    from_: str
+    auth_token: NonEmptyStr
+    from_: NonEmptyStr
 
     @staticmethod
     def to_dict(data: "ViberChannel") -> dict[str, str]:
         return {
-            "auth_token": data.auth_token,
-            "from": data.from_
+            "auth_token": str(data.auth_token),
+            "from": str(data.from_)
         }
     
     @staticmethod
-    @effect.result["ViberChannel", str]()
-    def from_dict(raw_data: dict[str, str]) -> Generator[Any, Any, "ViberChannel"]:
-        dict_data = yield from Result.Ok(raw_data) if isinstance(raw_data, dict) else Result.Error(f"Invalid data type {type(raw_data)}")
-        auth_token = yield from parse_from_dict(dict_data, "auth_token", parse_non_empty_str)
-        from_ = yield from parse_from_dict(dict_data, "from", parse_non_empty_str)
-        return ViberChannel(auth_token, from_)
+    def from_dict(raw_data: dict[str, str]) -> Result["ViberChannel", tuple[ValueErr, ...]]:
+        auth_token_res = parse_dict_field(raw_data, "auth_token", NonEmptyStr.parse)
+        from_res = parse_dict_field(raw_data, "from", NonEmptyStr.parse)
+        return apply(ViberChannel, lambda errs: errs, auth_token_res, from_res)
 
 class ViberChannelsStore:
     def __init__(self, root_folder: str):
