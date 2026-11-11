@@ -13,8 +13,9 @@ from shared.infrastructure.storage.repository import NotFoundError, StorageError
 from shared.pipeline.actionhandler import DataDto
 from shared.utils.asyncresult import async_result, coroutine_result
 from shared.utils.exceptiondecorators import async_ex_to_error_result
-from shared.utils.parse import parse_from_dict, NonEmptyStr
+from shared.utils.parse import parse_dict_field, NonEmptyStr
 from shared.utils.result import apply3, traverse_accumulating_with_index
+from shared.validation import format_value_errors, ValueError as ValueErr
 
 from customactionhandler import CustomActionHandler
 
@@ -28,22 +29,22 @@ class SendToViberChannelConfig:
     content_field_name: NonEmptyStr | None
 
     @staticmethod
-    def from_dict(data: dict[str, Any]) -> Result['SendToViberChannelConfig', str]:
-        def validate_channel_id() -> Result[ViberChannelIdValue, str]:
-            return parse_from_dict(data, "channel_id", ViberChannelIdValue.from_value_with_checksum)
+    def from_dict(data: dict[str, Any]) -> Result['SendToViberChannelConfig', tuple[ValueErr, ...]]:
+        def validate_channel_id() -> Result[ViberChannelIdValue, ValueErr]:
+            return parse_dict_field(data, "channel_id", ViberChannelIdValue.from_value_with_checksum)
         
-        def validate_title() -> Result[NonEmptyStr, str]:
-            return parse_from_dict(data, "title", NonEmptyStr.parse)
+        def validate_title() -> Result[NonEmptyStr, ValueErr]:
+            return parse_dict_field(data, "title", NonEmptyStr.parse)
             
-        def validate_content_field_name() -> Result[NonEmptyStr | None, str]:
+        def validate_content_field_name() -> Result[NonEmptyStr | None, ValueErr]:
             if "content_field_name" not in data:
                 return Result.Ok(None)
-            return parse_from_dict(data, "content_field_name", NonEmptyStr.parse)
+            return parse_dict_field(data, "content_field_name", NonEmptyStr.parse)
 
         channel_id_res = validate_channel_id()
         title_res = validate_title()
         content_field_name_res = validate_content_field_name()
-        config_res = apply3(SendToViberChannelConfig, ", ".join, channel_id_res, title_res, content_field_name_res)
+        config_res = apply3(SendToViberChannelConfig, lambda errs: errs, channel_id_res, title_res, content_field_name_res)
         return config_res
 
 type SendToViberChannelInput = list[DataDto]
@@ -139,7 +140,7 @@ class SendToViberChannelHandler(CustomActionHandler[SendToViberChannelConfig, Se
         return ActionName("sendtoviberchannel")
     
     def validate_config(self, raw_config: dict[str, Any]) -> Result[SendToViberChannelConfig, Any]:
-        return SendToViberChannelConfig.from_dict(raw_config)
+        return SendToViberChannelConfig.from_dict(raw_config).map_error(format_value_errors)
 
     def validate_input(self, config: SendToViberChannelConfig, dto_list: list[DataDto]) -> Result[SendToViberChannelInput, Any]:
         if not dto_list:
