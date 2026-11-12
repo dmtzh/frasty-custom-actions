@@ -10,31 +10,32 @@ from shared.completedresult import CompletedResult, CompletedWith
 from shared.customtypes import Error
 from shared.pipeline.actionhandler import DataDto
 from shared.utils.exceptiondecorators import ex_to_error_result
-from shared.utils.parse import DefaultValue, parse_bool_str, parse_from_dict, parse_non_empty_str, parse_optional_default_value
-from shared.utils.result import apply
+from shared.utils.parse import DefaultValue, NonEmptyStr, parse_bool_str, parse_dict_field, parse_optional_default_value
+from shared.utils.result import apply, traverse_accumulating_with_index
+from shared.validation import format_value_errors, ValueError as ValueErr, ValueInvalid, ValueMissing
 
 from customactionhandler import CustomActionHandler
 
 class GetContentFromHtmlConfigSelector:
     class CssSelector:
-        def __init__(self, css: str):
+        def __init__(self, css: NonEmptyStr):
             self._css = css
         def process_content(self, content) -> list[str]:
             return Selector(text=content).css(self._css).getall()
     
     class RegexSelector:
-        def __init__(self, regex: str):
+        def __init__(self, regex: NonEmptyStr):
             self._regex = regex
         def process_content(self, content) -> list[str]:
             return Selector(text=content).re(self._regex)
 
     class XPathSelector:
-        def __init__(self, xpath: str):
+        def __init__(self, xpath: NonEmptyStr):
             self._xpath = xpath
         def process_content(self, content) -> list[str]:
             return Selector(text=content).xpath(self._xpath).getall()
 
-    def __init__(self, selector: CssSelector | RegexSelector | XPathSelector, output_name: str | None, default_value: DefaultValue | None):
+    def __init__(self, selector: CssSelector | RegexSelector | XPathSelector, output_name: NonEmptyStr | None, default_value: DefaultValue | None):
         self._selector = selector
         self._output_name = output_name
         self._default_value = default_value
@@ -50,28 +51,28 @@ class GetContentFromHtmlConfigSelector:
                 return [input | {output_name: match} for match in matches]
     
     @staticmethod
-    def from_dict(data: dict) -> Result['GetContentFromHtmlConfigSelector', str]:
-        def validate_css_selector() -> Result[GetContentFromHtmlConfigSelector.CssSelector, str] | None:
+    def from_dict(data: dict) -> Result['GetContentFromHtmlConfigSelector', tuple[ValueErr, ...]]:
+        def validate_css_selector() -> Result[GetContentFromHtmlConfigSelector.CssSelector, ValueErr] | None:
             if "css" not in data:
                 return None
-            return parse_from_dict(data, "css", parse_non_empty_str).map(GetContentFromHtmlConfigSelector.CssSelector)
-        def validate_regex_selector() -> Result[GetContentFromHtmlConfigSelector.RegexSelector, str] | None:
+            return parse_dict_field(data, "css", NonEmptyStr.parse).map(GetContentFromHtmlConfigSelector.CssSelector)
+        def validate_regex_selector() -> Result[GetContentFromHtmlConfigSelector.RegexSelector, ValueErr] | None:
             if "regex" not in data:
                 return None
-            return parse_from_dict(data, "regex", parse_non_empty_str).map(GetContentFromHtmlConfigSelector.RegexSelector)
-        def validate_xpath_selector() -> Result[GetContentFromHtmlConfigSelector.XPathSelector, str] | None:
+            return parse_dict_field(data, "regex", NonEmptyStr.parse).map(GetContentFromHtmlConfigSelector.RegexSelector)
+        def validate_xpath_selector() -> Result[GetContentFromHtmlConfigSelector.XPathSelector, ValueErr] | None:
             if "xpath" not in data:
                 return None
-            return parse_from_dict(data, "xpath", parse_non_empty_str).map(GetContentFromHtmlConfigSelector.XPathSelector)
-        def validate_output_name() -> Result[str | None, str]:
+            return parse_dict_field(data, "xpath", NonEmptyStr.parse).map(GetContentFromHtmlConfigSelector.XPathSelector)
+        def validate_output_name() -> Result[NonEmptyStr | None, ValueErr]:
             if "output_name" not in data:
                 return Result.Ok(None)
-            return parse_from_dict(data, "output_name", parse_non_empty_str)
+            return parse_dict_field(data, "output_name", NonEmptyStr.parse)
         selector_res = validate_css_selector() or validate_regex_selector() or validate_xpath_selector() \
-            or Result[GetContentFromHtmlConfigSelector.CssSelector, str].Error("css, regex or xpath selector is missing")
+            or Result[GetContentFromHtmlConfigSelector.CssSelector, ValueErr].Error(ValueMissing("css/regex/xpath"))
         output_name_res = validate_output_name()
         opt_default_value = parse_optional_default_value(data)
-        config_res = apply(lambda selector, output_name: GetContentFromHtmlConfigSelector(selector, output_name, opt_default_value), ", ".join, selector_res, output_name_res)
+        config_res = apply(lambda selector, output_name: GetContentFromHtmlConfigSelector(selector, output_name, opt_default_value), lambda errs: errs, selector_res, output_name_res)
         return config_res
 
 @dataclass(frozen=True)
@@ -80,31 +81,32 @@ class GetContentFromHtmlConfig:
     return_empty_result: bool
 
     @staticmethod
-    def from_dict(data: dict[str, Any]) -> Result['GetContentFromHtmlConfig', str]:
-        def validate_raw_selector(raw_selector) -> Result[GetContentFromHtmlConfigSelector, str]:
+    def from_dict(data: dict[str, Any]) -> Result['GetContentFromHtmlConfig', tuple[ValueErr, ...]]:
+        def validate_raw_selector(idx: int, raw_selector: Any) -> Result[GetContentFromHtmlConfigSelector, ValueErr] | Result[GetContentFromHtmlConfigSelector, tuple[ValueErr, ...]]:
             match raw_selector:
                 case dict():
                     return GetContentFromHtmlConfigSelector.from_dict(raw_selector)
                 case _:
-                    return Result.Error(f"invalid 'selector' value {raw_selector}")    
-        def validate_raw_selectors(raw_selectors: list[Any]) -> Result[tuple[GetContentFromHtmlConfigSelector, ...], str]:
-            initial_res = Result[tuple[GetContentFromHtmlConfigSelector, ...], tuple[str, ...]].Ok(tuple[GetContentFromHtmlConfigSelector, ...]())
-            def process_raw_selector(selectors_res: Result[tuple[GetContentFromHtmlConfigSelector, ...], tuple[str, ...]], raw_selector):
-                selector_res = validate_raw_selector(raw_selector)
-                return apply(lambda selectors, selector: selectors + (selector,), lambda err: err, selectors_res, selector_res)
-            selectors_res = functools.reduce(process_raw_selector, raw_selectors, initial_res)
-            return selectors_res.map_error(", ".join)
-        def validate_selectors() -> Result[tuple[GetContentFromHtmlConfigSelector, ...], str]:
-            raw_selectors_res = parse_from_dict(data, "selectors", lambda selectors: selectors if isinstance(selectors, list) and selectors else None)
+                    return Result[GetContentFromHtmlConfigSelector, ValueErr].Error(
+                        ValueInvalid(f"selectors[{idx}]", raw_selector)
+                    )
+        def validate_raw_selectors(raw_selectors: list[Any]) -> Result[tuple[GetContentFromHtmlConfigSelector, ...], tuple[ValueErr, ...]]:
+            selectors_res = traverse_accumulating_with_index(
+                raw_selectors, validate_raw_selector
+            ).map(tuple)
+            return selectors_res
+        def validate_selectors() -> Result[tuple[GetContentFromHtmlConfigSelector, ...], tuple[ValueErr, ...]]:
+            raw_selectors_res = parse_dict_field(data, "selectors", lambda selectors: selectors if isinstance(selectors, list) and selectors else None)\
+                .map_error(lambda err: tuple([err]))
             return raw_selectors_res.bind(validate_raw_selectors)
-        def validate_return_empty_result() -> Result[bool, str]:
+        def validate_return_empty_result() -> Result[bool, ValueErr]:
             if "return_empty_result" not in data:
                 return Result.Ok(False)
-            return parse_from_dict(data, "return_empty_result", parse_bool_str)
+            return parse_dict_field(data, "return_empty_result", parse_bool_str)
         
         selectors_res = validate_selectors()
         return_empty_result_res = validate_return_empty_result()
-        config_res = apply(GetContentFromHtmlConfig, ", ".join, selectors_res, return_empty_result_res)
+        config_res = apply(GetContentFromHtmlConfig, lambda errs: errs, selectors_res, return_empty_result_res)
         return config_res
 
 type GetContentFromHtmlInput = list[DataDto]
@@ -115,7 +117,7 @@ class GetContentFromHtmlHandler(CustomActionHandler[GetContentFromHtmlConfig, Ge
         return ActionName("getcontentfromhtml")
     
     def validate_config(self, raw_config: dict[str, Any]) -> Result[GetContentFromHtmlConfig, Any]:
-        return GetContentFromHtmlConfig.from_dict(raw_config)
+        return GetContentFromHtmlConfig.from_dict(raw_config).map_error(format_value_errors)
     
     def validate_input(self, _: GetContentFromHtmlConfig, dto_list: list[DataDto]) -> Result[GetContentFromHtmlInput, Any]:
         return Result.Ok(dto_list)
